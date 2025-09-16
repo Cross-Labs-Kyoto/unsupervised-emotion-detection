@@ -4,7 +4,7 @@ from itertools import combinations
 import warnings
 import numpy as np
 import torch
-from torch.utils.data import Dataset, Sampler
+from torch.utils.data import Dataset, Sampler, DataLoader
 
 from settings import DATA_DIR, FACED
 from loguru import logger
@@ -168,9 +168,15 @@ if __name__ == "__main__":
     stride = 2
 
     data, label_repeat, n_samples, n_segs, n_subs = load_data(kernel, stride)
-    samples_cum = np.concatenate((np.array([0]), np.cumsum(n_samples)))
-    logger.debug(samples_cum)
+
+
+    labels = np.tile(label_repeat, n_subs)
+    data = data.reshape(-1, data.shape[-1])
+    emo_ds = EmotionDataset(data, labels, kernel, stride, n_segs)
 
     ts = TripletSampler(n_subs, 32, n_samples)
-    batch = next(ts.__iter__())
-    logger.debug(batch.shape)
+
+    dl = DataLoader(emo_ds, batch_sampler=ts)
+    for seq, labels in dl:
+        logger.debug(f'Input shape: {seq.shape}, Label shape: {labels.shape}')
+        exit()
