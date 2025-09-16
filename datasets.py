@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 import pickle
 from itertools import combinations
+import warnings
 import numpy as np
 import torch
 from torch.utils.data import Dataset, Sampler
 
 from settings import DATA_DIR, FACED
 from loguru import logger
+
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 def load_data(timeLen, timeStep):
