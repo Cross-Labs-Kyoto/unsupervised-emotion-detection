@@ -93,13 +93,10 @@ class EmotionDataset(Dataset):
         # Based on the given index, extract the right segment for all channels
         one_seq = self.data[:, int((idx * self.timeStep + self.n_samples_remain_each * np.floor(idx / self.n_segs)) * self.fs):int((idx * self.timeStep + self.timeLen + self.n_samples_remain_each * np.floor(idx / self.n_segs)) * self.fs)]
 
-        # ?
-        one_seq = torch.FloatTensor(one_seq).unsqueeze(0)
-
         # Get the corresponding label
         one_label = self.label[idx]
 
-        return one_seq, one_label
+        return torch.FloatTensor(one_seq), one_label
 
 class TripletSampler(Sampler[list[int]]):
     def __init__(self, nb_subs, batch_size, nb_samples):
