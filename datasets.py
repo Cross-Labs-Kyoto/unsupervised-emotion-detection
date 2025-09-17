@@ -14,6 +14,18 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
+def get_labels():
+    # Build the list of labels for a single time series
+    label = [0] * 3
+    for i in range(1,4):
+        label.extend([i] * 3)
+    label.extend([4] * 4)
+    for i in range(5,9):
+        label.extend([i] * 3)
+
+    return label
+
+
 def load_data(timeLen, timeStep):
     """
     Loads the FACED - Clisa data from files, builds the associated list of
@@ -56,20 +68,12 @@ def load_data(timeLen, timeStep):
     data = np.transpose(data, (0,1,3,2)).reshape(n_subs, -1, FACED['channels'])
     logger.debug(f'data reshaped: {data.shape}')
 
-    # Build the list of labels for a single time series
-    label = [0] * 3
-    for i in range(1,4):
-        label.extend([i] * 3)
-    label.extend([4] * 4)
-    for i in range(5,9):
-        label.extend([i] * 3)
-    logger.debug(f'labels: {label}')
+    label = get_labels()
 
     # Extend the list of labels to all time series
     label_repeat = []
     for i in range(len(label)):
         label_repeat = label_repeat + [label[i]] * n_segs
-    logger.debug(f'Length final labels: {len(label_repeat)}')
 
     return data, label_repeat, n_samples, n_segs, n_subs
 
@@ -99,18 +103,19 @@ class EmotionDataset(Dataset):
 
         return torch.FloatTensor(one_seq), one_label
 
+
 class TripletSampler(Sampler[list[int]]):
     def __init__(self, nb_subs, batch_size, nb_samples, labels):
         self.batch_size = batch_size
+        self.nb_samples_cum = np.concatenate((np.array([0]), np.cumsum(nb_samples)))
         assert self.batch_size >= len(self.nb_samples_cum) - 1, f"The batch size ({batch_size}) should be greater than the number of videos ({len(self.nb_samples_cum) - 1})."
 
-        self.subs_set = set(range(nb_subs))
-        self.nb_samples_cum = np.concatenate((np.array([0]), np.cumsum(nb_samples)))
 
         self.nb_samples_cum_set = set(range(len(self.nb_samples_cum) - 2))
         self.nb_samples_per_trial = int(batch_size / len(nb_samples))
         self.n_per = int(np.sum(nb_samples))
 
+        self.subs_set = set(range(nb_subs))
         self.sub_pairs = combinations(range(nb_subs), 2)
         self.nb_sub_pairs = len(list(combinations(range(nb_subs), 2)))
 
@@ -178,12 +183,13 @@ if __name__ == "__main__":
     batch_size = 32
 
     data, label_repeat, n_samples, n_segs, n_subs = load_data(kernel, stride)
+    logger.debug(n_samples)
 
     labels = np.tile(label_repeat, n_subs)
     data = data.reshape(-1, data.shape[-1])
     emo_ds = EmotionDataset(data, labels, kernel, stride, n_segs)
 
-    ts = TripletSampler(n_subs, batch_size, n_samples, label_repeat)
+    ts = TripletSampler(n_subs, batch_size, n_samples, get_labels())
 
     dl = DataLoader(emo_ds, batch_sampler=ts)
     for seq, labels in dl:
