@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import pickle
 from itertools import combinations
+from collections import defaultdict
 import warnings
 import numpy as np
 import torch
@@ -99,12 +100,12 @@ class EmotionDataset(Dataset):
         return torch.FloatTensor(one_seq), one_label
 
 class TripletSampler(Sampler[list[int]]):
-    def __init__(self, nb_subs, batch_size, nb_samples):
-        self.subs_set = set(range(nb_subs))
+    def __init__(self, nb_subs, batch_size, nb_samples, labels):
         self.batch_size = batch_size
-        self.nb_samples_cum = np.concatenate((np.array([0]), np.cumsum(nb_samples)))
-
         assert self.batch_size >= len(self.nb_samples_cum) - 1, f"The batch size ({batch_size}) should be greater than the number of videos ({len(self.nb_samples_cum) - 1})."
+
+        self.subs_set = set(range(nb_subs))
+        self.nb_samples_cum = np.concatenate((np.array([0]), np.cumsum(nb_samples)))
 
         self.nb_samples_cum_set = set(range(len(self.nb_samples_cum) - 2))
         self.nb_samples_per_trial = int(batch_size / len(nb_samples))
@@ -112,6 +113,11 @@ class TripletSampler(Sampler[list[int]]):
 
         self.sub_pairs = combinations(range(nb_subs), 2)
         self.nb_sub_pairs = len(list(combinations(range(nb_subs), 2)))
+
+        self.idx_to_labels = labels
+        self.labels_to_idx = defaultdict(list)
+        for idx, label in enumerate(labels):
+            self.labels_to_idx[label].append(idx)
 
     def __len__(self):
         return self.nb_sub_pairs
@@ -132,8 +138,10 @@ class TripletSampler(Sampler[list[int]]):
                                            self.nb_samples_per_trial, replace=False)
                 ind_ap = np.concatenate((ind_ap, ind_one))
 
+                # Gather all the indices that belong to the same label as the current one
+                a_is = self.labels_to_idx[self.idx_to_labels[i]]
                 # Choose a negative index different from i
-                n_i = np.random.choice(list(self.nb_samples_cum_set - set([i])))
+                n_i = np.random.choice(list(self.nb_samples_cum_set - set(a_is)))
                 # Get segment indices for negative
                 ind_two = np.random.choice(np.arange(self.nb_samples_cum[n_i], self.nb_samples_cum[n_i + 1]),
                                            self.nb_samples_per_trial, replace=False)
@@ -146,7 +154,8 @@ class TripletSampler(Sampler[list[int]]):
             ind_ap = np.concatenate((ind_ap, ind_one))
 
             # Choose a negative index different from i
-            n_i = np.random.choice(list(self.nb_samples_cum_set - set([i])))
+            a_is = self.labels_to_idx[self.idx_to_labels[i]]
+            n_i = np.random.choice(list(self.nb_samples_cum_set - set(a_is)))
             # Get segment indices for negative
             ind_two = np.random.choice(np.arange(self.nb_samples_cum[n_i], self.nb_samples_cum[n_i + 1]),
                                        int(self.batch_size - len(ind_n)),
@@ -166,15 +175,15 @@ class TripletSampler(Sampler[list[int]]):
 if __name__ == "__main__":
     kernel = 5
     stride = 2
+    batch_size = 32
 
     data, label_repeat, n_samples, n_segs, n_subs = load_data(kernel, stride)
-
 
     labels = np.tile(label_repeat, n_subs)
     data = data.reshape(-1, data.shape[-1])
     emo_ds = EmotionDataset(data, labels, kernel, stride, n_segs)
 
-    ts = TripletSampler(n_subs, 32, n_samples)
+    ts = TripletSampler(n_subs, batch_size, n_samples, label_repeat)
 
     dl = DataLoader(emo_ds, batch_sampler=ts)
     for seq, labels in dl:
