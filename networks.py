@@ -1,94 +1,126 @@
 #!/usr/bin/env python3
 import torch
 from torch import nn
-from torch import cuda
 from torch.optim import AdamW
-from torch.utils.data import Dataloader, random_split
+from torch.utils.data import DataLoader, random_split
 from loguru import logger
 
+from settings import DEVICE, WEIGHT_DIR
 
-DEVICE = torch.device('cuda') if cuda.is_available() else torch.device('cpu')
+
+def stratified_norm(x, batch_size):
+    """Compute the [stratified norm](https://www.frontiersin.org/journals/neuroscience/articles/10.3389/fnins.2021.626277/full) of the given input."""
+
+    chunk_size = int(x.shape[0] / batch_size)
+    chunks = torch.split(x, chunk_size, dim=0)
+    out = x.clone()
+
+    for i, chk in enumerate(chunks):
+        m = torch.mean(chk, dim=(0, 1), keepdim=True)  # Compute mean across video for same participant, and same channel
+        s = torch.std(chk, dim=(0, 1), keepdim=True)  # Compute std across video for same participant, and same channel
+        out[i*batch_size:(i+1)*batch_size] = (chk - m) / (s + 1e-3)
+
+    return out
 
 
-class LSTM(nn.Module):
-    """Declare a common LSTM-based module for dealing with EEG time series."""
+def min_max_norm(x, batch_size):
+    chunk_size = int(x.shape[0] / batch_size)
+    chunks = torch.split(x, chunk_size, dim=0)
+    out = x.clone()
 
-    def __init__(self, in_size, hidden_size, out_size, nb_lstm=1, dropout=0, bidir=False, device=DEVICE):
-        """Initialize an Lstm-based network with a partial head."""
+    for i, chk in enumerate(chunks):
+        vmin = torch.amin(chk, dim=(0, 1), keepdim=True)  # Compute min value across video for same participant, and same channel
+        vmax = torch.amax(chk, dim=(0, 1), keepdim=True)  # Compute std across video for same participant, and same channel
+        out[i*batch_size:(i+1)*batch_size] = (chk - vmin) / (vmax - vmin)
+
+    return out
+
+
+class Contrastive(nn.Module):
+    """Define a lstm-based network that learns to generate informative representations through contrastive learning."""
+
+    def __init__(self, in_size, hidden_size, out_size, nb_lstm=1,  l_rate=1e-4, dropout=0, bidir=False, device=DEVICE):
+        """Instantiate the lstm-based network, define the output, and declare the optimizer and loss."""
 
         super().__init__()
         # Define the lstm layers
         self._lstm = nn.LSTM(in_size, hidden_size, num_layers=nb_lstm, batch_first=True, dropout=dropout, bidirectional=bidir, device=device)
 
-        # TODO: What about normalization?
         # Declare a feature layer
         if bidir:
             in_feats = 2 * hidden_size
         else:
             in_feats = hidden_size
-        self._feat = nn.Sequential(
-            nn.Linear(in_feats, 64, device=device),
+
+        self._fc1 = nn.Sequential(
             nn.Dropout(0.25, inplace=True),
+            nn.Linear(in_feats, in_feats, device=device),
+            nn.ReLU(inplace=True),
+        )
+        
+        self._fc2 = nn.Sequential(
+            nn.Dropout(0.25, inplace=True),
+            nn.Linear(in_feats, in_feats, device=device),
             nn.ReLU(inplace=True),
         )
 
-        # TODO: What about normalization?
         # Declare the fully connected part of the head
         # The output activation is left out on purpose to allow for customization down the line
-        self._fc = nn.Sequential(
-            nn.Linear(64, 64, device=device),
-            nn.Dropout(0.25, inplace=True),
-            nn.ReLU(inplace=True),
-            nn.Linear(64, out_size, device=device)
-        )
+        self._head = nn.Linear(in_feats, out_size, device=device)
 
-    def forward(self, x):
-        """Propagate the given input through the lstm and partial head."""
-
-        out, _ = self._lstm(x)
-        return self._fc(self._feat(out[:, -1, :]))  # Only feed the last hidden state to the head
-
-
-class Classifier(LSTM):
-    """Define an Lstm-based network for classifying EEG time series into emotion classes."""
-
-    def __init__(self, in_size, hidden_size, out_size, nb_lstm=1, l_rate=1e-3, dropout=0, bidir=False, device=DEVICE):
-        """Instantiate the Lstm structure and declare a task specific output layer."""
-
-        # Create the basic structure
-        super().__init__(in_size, hidden_size, out_size, nb_lstm=1, dropout=0, bidir=False, device=DEVICE)
-
-        # Declare the output layer
-        self._out = nn.Softmax(dim=1)
-
-        # Declare the loss and optimizer
-        self._loss = nn.CrossEntropyLoss()
+        # Declare loss and optimizer
+        self._loss = nn.TripletMarginLoss()
         self._optim = AdamW(self.parameters(), lr=l_rate, amsgrad=True)
 
-    def forward(self, x):
-        """Propagate the given input through the lstm-based common body, and apply softmax to the output."""
-        x = super()(x)
-        return self._out(x)
+        self._device = device
 
-    def train_net(self, ds, epochs, batch_size=64, stop_crit=0.01, patience=20):
-        # Keep track of the minimum loss and current patience
+    def foward(self, x, batch_size, infer):
+        """Propagate the given input through the network, and apply stratified normalization to the output."""
+
+        # Min-Max normalization
+        x = min_max_norm(x, batch_size)
+        # Lstm
+        out, _ = self._lstm(x)
+        out = stratified_norm(out, batch_size)
+
+        # Fc1
+        out = self._fc1(out)
+        out = stratified_norm(out, batch_size)
+
+        # Fc2
+        out = self._fc2(out)
+        out = stratified_norm(out, batch_size)
+
+        # TODO: Multitaper features
+
+        # Head
+        out = self._head(out)
+
+        return out
+
+    def train_net(self, ds, sampler, epochs, batch_size=64, patience=20):
+        # Keep track of the minimum validation loss and patience
         min_loss = None
         curr_patience = patience
 
-        # Split the dataset into train and validation dataloader
+        # Split the dataset into training and validation
         train_ds, val_ds = random_split(ds, [0.9, 0.1])
-        train_dl = Dataloader(train_ds, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=1)
-        val_dl = Dataloader(val_ds, batch_size=batch_size, shuffle=True, drop_last=True, num_workers=1)
+        # Instantiate the dataload with triplet sampler
+        train_dl = DataLoader(train_ds, batch_sampler=sampler, num_workers=4)
+        val_dl = DataLoader(val_ds, batch_sampler=sampler, num_workers=4)
 
         for epoch in epochs:
-            # Ensure the network is in training mode
-            self = self.train()
             # Train
+            self.train()
             train_loss = 0
-            for batch, labels in train_dl:
+            for batch, _ in train_dl:
+                batch = batch.permute((0, 2, 1)).to(self._device)  # N, L, chan
+
+                preds = self(batch, batch_size)
+                anch, pos, neg = preds[:, :batch_size], preds[:, batch_size:2*batch_size], preds[:, 2*batch_size:]
+
                 self._optim.zero_grad()
-                preds = self(batch)
-                loss = self._loss(preds, labels)
+                loss = self._loss(anch, pos, neg)
                 loss.backward()
                 self._optim.step()
 
@@ -96,19 +128,26 @@ class Classifier(LSTM):
 
             train_loss /= len(train_dl)
 
-            # Ensure the network is in evaluation mode
+            # And validate
             self = self.eval()
             val_loss = 0
             with torch.no_grad():
                 for batch, labels in val_dl:
-                    preds = self(batch)
-                    val_loss += self._loss(preds, labels).item()
+                    batch = batch.permute((0, 2, 1)).to(self._device)  # N, L, chan
+                    preds = self(batch, batch_size)
+                    anch, pos, neg = preds[:, :batch_size], preds[:, batch_size:2*batch_size], preds[:, 2*batch_size:]
+
+                    val_loss += self._loss(anch, pos, neg).item()
 
             # Check stop criterion
             val_loss /= len(val_dl)
+
             if min_loss is None or val_loss < min_loss:
                 min_loss = val_loss
                 curr_patience = patience
+
+                # Save weights to file
+                torch.save(self.state_dict(), WEIGHT_DIR.joinpath('contrastive_lstm.pth'))
             else:
                 curr_patience -= 1
 
@@ -118,22 +157,25 @@ class Classifier(LSTM):
             # Display some statistics
             logger.info(f'{epoch},{train_loss},{val_loss}')
 
-    def test_net(self, ds, batch_size=64):
-        # Instantiate the dataloader
-        test_dl = Dataloader(ds, batch_size=batch_size, shuffle=False, drop_last=False, num_workers=1)
+    def test_net(self, ds, sampler, batch_size=64):
+        # Instantiate dataloader
+        test_dl = DataLoader(ds, batch_sampler=sampler, num_workers=4)
 
-        # Ensure the network is in evaluation mode
-        self = self.eval()
+        # Test
+        self.eval()
         test_loss = 0
         with torch.no_grad():
-            for batch, labels in test_dl:
-                preds = self(batch)
-                test_loss += self._loss(preds, labels).item()
+            for batch, _ in test_dl:
+                batch = batch.permute((0, 2, 1)).to(self._device)
 
-        # Display some statistics
+                preds = self(batch, batch_size)
+                anch, pos, neg = preds[:, :batch_size], preds[:, batch_size:2*batch_size], preds[:, 2*batch_size:]
+                test_loss += self._loss(anch, pos, neg)
+
+        # Print final stats
         logger.info(f'Test loss: {test_loss / len(test_dl)}')
 
-# TODO: Define classifier based on generic class
-# TODO: Define contrastive learning NN based on generic class
-
-# TODO: Both classified and contrastive learning NN should declare their own Train, Test, and Infer methods => Include loss, optimizer, and path to weight file
+    def inference(self, ds, batch_size=64):
+        # TODO: Use regular sampler
+        # TODO: Store features in h5py file? Or pyarrow? Or pytable?
+        pass
