@@ -5,6 +5,7 @@ from torch import cuda, device
 
 ROOT_DIR = Path(__file__).resolve().parent
 DATA_DIR = ROOT_DIR.joinpath('Data')
+WEIGHT_DIR = ROOT_DIR.joinpath('Weights')
 DEVICE = device('cuda') if cuda.is_available() else device('cpu')
 
 FACED = {'channels': 30,  # Two channels are ignored
