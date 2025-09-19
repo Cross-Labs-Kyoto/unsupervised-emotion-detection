@@ -73,7 +73,7 @@ class Contrastive(nn.Module):
         self._device = device
         self._batch_size = batch_size
 
-    def foward(self, x, batch_size, infer):
+    def forward(self, x, infer=False):
         """Propagate the given input through the network, and apply stratified normalization to the output."""
 
         # Min-Max normalization
