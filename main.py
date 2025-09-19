@@ -26,7 +26,7 @@ if __name__ == "__main__":
 
     # Instantiate model
     logger.info("Loading model")
-    model = Contrastive(in_size=FACED['channels'], hidden_size=FACED['channels'] // 2, out_size=10, l_rate=0.0007, batch_size=batch_size)
+    model = Contrastive(in_size=FACED['channels'], hidden_size=FACED['channels'] // 2, out_size=10, l_rate=0.0007, batch_size=batch_size, dropout=0.25)
 
     # Load data
     logger.info("Loading data")
