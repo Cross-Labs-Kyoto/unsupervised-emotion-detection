@@ -11,8 +11,7 @@ from settings import DEVICE, WEIGHT_DIR
 def stratified_norm(x, batch_size):
     """Compute the [stratified norm](https://www.frontiersin.org/journals/neuroscience/articles/10.3389/fnins.2021.626277/full) of the given input."""
 
-    chunk_size = int(x.shape[0] / batch_size)
-    chunks = torch.split(x, chunk_size, dim=0)
+    chunks = torch.split(x, batch_size, dim=0)
     out = x.clone()
 
     for i, chk in enumerate(chunks):
@@ -24,8 +23,7 @@ def stratified_norm(x, batch_size):
 
 
 def min_max_norm(x, batch_size):
-    chunk_size = int(x.shape[0] / batch_size)
-    chunks = torch.split(x, chunk_size, dim=0)
+    chunks = torch.split(x, batch_size, dim=0)
     out = x.clone()
 
     for i, chk in enumerate(chunks):
