@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
+import numpy as np
 import torch
 from torch import nn
 from torch.optim import AdamW
 from torch.utils.data import DataLoader, random_split
+from mne.time_frequency import psd_array_multitaper
+from scipy.integrate import simpson
 from loguru import logger
 
-from settings import DEVICE, WEIGHT_DIR
+from settings import DEVICE, WEIGHT_DIR, BANDS, FACED
 
 
 def stratified_norm(x, batch_size):
     """Compute the [stratified norm](https://www.frontiersin.org/journals/neuroscience/articles/10.3389/fnins.2021.626277/full) of the given input."""
 
-    chunks = torch.split(x, batch_size, dim=0)
     out = x.clone()
+    chunks = torch.split(x, batch_size, dim=0)
 
     for i, chk in enumerate(chunks):
         m = torch.mean(chk, dim=(0, 1), keepdim=True)  # Compute mean across video for same participant, and same channel
@@ -23,8 +26,8 @@ def stratified_norm(x, batch_size):
 
 
 def min_max_norm(x, batch_size):
-    chunks = torch.split(x, batch_size, dim=0)
     out = x.clone()
+    chunks = torch.split(x, batch_size, dim=0)
 
     for i, chk in enumerate(chunks):
         vmin = torch.amin(chk, dim=(0, 1), keepdim=True)  # Compute min value across video for same participant, and same channel
@@ -34,6 +37,26 @@ def min_max_norm(x, batch_size):
     return out
 
 
+def multitaper(x, batch_size):
+    out = torch.zeros((x.shape[0], x.shape[-1] * len(BANDS))) # batch, seq, feat
+    x = x.permute((0, 2, 1)).cpu().numpy()  # batch, feat, seq
+    for vid in range(x.shape[0]):
+        for feat in range(x.shape[1]):
+            data = x[vid, feat]
+            for i, band in enumerate(BANDS):
+                low, high = band
+                psd_trial, freqs = psd_array_multitaper(data, FACED['sample_freq'],
+                                                        adaptive=True,
+                                                        n_jobs=-1,
+                                                        normalization='full',
+                                                        verbose=False)
+                freq_res = freqs[1] - freqs[0]
+                idx_band = np.logical_and(freqs >= low, freqs <= high)
+
+                out[vid, i + feat] = simpson(psd_trial[idx_band], dx=freq_res)  # Band power
+
+    return out
+
 class Contrastive(nn.Module):
     """Define a lstm-based network that learns to generate informative representations through contrastive learning."""
 
@@ -42,7 +65,7 @@ class Contrastive(nn.Module):
 
         super().__init__()
         # Define the lstm layers
-        self._lstm = nn.LSTM(in_size, hidden_size, num_layers=nb_lstm, batch_first=True, dropout=dropout, bidirectional=bidir, device=device)
+        self._lstm = nn.LSTM(in_size, hidden_size, num_layers=nb_lstm, batch_first=True, dropout=dropout if nb_lstm > 1 else 0, bidirectional=bidir, device=device)
 
         # Declare a feature layer
         if bidir:
@@ -51,13 +74,13 @@ class Contrastive(nn.Module):
             in_feats = hidden_size
 
         self._fc1 = nn.Sequential(
-            nn.Dropout(0.25, inplace=True),
+            nn.Dropout(dropout, inplace=True),
             nn.Linear(in_feats, in_feats, device=device),
             nn.ReLU(inplace=True),
         )
 
         self._fc2 = nn.Sequential(
-            nn.Dropout(0.25, inplace=True),
+            nn.Dropout(dropout, inplace=True),
             nn.Linear(in_feats, in_feats, device=device),
             nn.ReLU(inplace=True),
         )
@@ -80,6 +103,7 @@ class Contrastive(nn.Module):
         x = min_max_norm(x, self._batch_size)
         # Lstm
         out, _ = self._lstm(x)
+        # TODO: Should we use only the last output rather than the sequence? => No need for multitaper and stratified_norm -> layerNorm
         out = stratified_norm(out, self._batch_size)
 
         # Fc1
@@ -90,9 +114,10 @@ class Contrastive(nn.Module):
         out = self._fc2(out)
         out = stratified_norm(out, self._batch_size)
 
-        # TODO: Multitaper features
-
-        if not infer:
+        if infer:
+            # Extract Multitaper features
+            out = multitaper(x, self._batch_size)
+        else:
             # Head
             out = self._head(out.to(self._device))
 
@@ -135,7 +160,7 @@ class Contrastive(nn.Module):
                 for batch, labels in val_dl:
                     batch = batch.permute((0, 2, 1)).to(self._device)  # N, L, chan
                     preds = self(batch)
-                    anch, pos, neg = preds[:, :batch_size], preds[:, batch_size:2*batch_size], preds[:, 2*batch_size:]
+                    anch, pos, neg = preds[:, :self._batch_size], preds[:, self._batch_size:2*self._batch_size], preds[:, 2*self._batch_size:]
 
                     val_loss += self._loss(anch, pos, neg).item()
 
@@ -175,7 +200,7 @@ class Contrastive(nn.Module):
         # Print final stats
         logger.info(f'Test loss: {test_loss / len(test_dl)}')
 
-    def inference(self, ds, batch_size=64):
+    def inference(self, ds):
         # TODO: Use regular sampler
         # TODO: Store features in h5py file? Or pyarrow? Or pytable?
         pass
