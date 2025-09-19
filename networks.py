@@ -92,8 +92,9 @@ class Contrastive(nn.Module):
 
         # TODO: Multitaper features
 
-        # Head
-        out = self._head(out)
+        if not infer:
+            # Head
+            out = self._head(out.to(self._device))
 
         return out
 
