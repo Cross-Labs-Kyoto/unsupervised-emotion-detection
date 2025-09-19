@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
+    "joblib>=1.5.2",
     "loguru>=0.7.3",
+    "mne>=1.10.1",
     "numpy>=2.3.3",
     "scipy>=1.16.2",
     "torch>=2.8.0",
