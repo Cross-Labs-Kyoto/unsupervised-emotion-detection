@@ -5,7 +5,7 @@ from collections import defaultdict
 import warnings
 import numpy as np
 import torch
-from torch.utils.data import Dataset, Sampler, DataLoader
+from torch.utils.data import Dataset, Sampler
 
 from settings import DATA_DIR, FACED
 from loguru import logger
@@ -176,22 +176,3 @@ class TripletSampler(Sampler[list[int]]):
             batch = torch.LongTensor(np.concatenate((ind_a, ind_p, ind_n)))
 
             yield batch
-
-if __name__ == "__main__":
-    kernel = 5
-    stride = 2
-    batch_size = 32
-
-    data, label_repeat, n_samples, n_segs, n_subs = load_data(kernel, stride)
-    logger.debug(n_samples)
-
-    labels = np.tile(label_repeat, n_subs)
-    data = data.reshape(-1, data.shape[-1])
-    emo_ds = EmotionDataset(data, labels, kernel, stride, n_segs)
-
-    ts = TripletSampler(n_subs, batch_size, n_samples, get_labels())
-
-    dl = DataLoader(emo_ds, batch_sampler=ts)
-    for seq, labels in dl:
-        logger.debug(f'Input shape: {seq.shape}, Label shape: {labels.shape}')
-        exit()
