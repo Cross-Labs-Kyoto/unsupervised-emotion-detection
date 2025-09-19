@@ -39,7 +39,7 @@ def min_max_norm(x, batch_size):
 class Contrastive(nn.Module):
     """Define a lstm-based network that learns to generate informative representations through contrastive learning."""
 
-    def __init__(self, in_size, hidden_size, out_size, nb_lstm=1,  l_rate=1e-4, dropout=0, bidir=False, device=DEVICE):
+    def __init__(self, in_size, hidden_size, out_size, nb_lstm=1,  l_rate=1e-4, batch_size=1, dropout=0, bidir=False, device=DEVICE):
         """Instantiate the lstm-based network, define the output, and declare the optimizer and loss."""
 
         super().__init__()
@@ -57,7 +57,7 @@ class Contrastive(nn.Module):
             nn.Linear(in_feats, in_feats, device=device),
             nn.ReLU(inplace=True),
         )
-        
+
         self._fc2 = nn.Sequential(
             nn.Dropout(0.25, inplace=True),
             nn.Linear(in_feats, in_feats, device=device),
@@ -73,23 +73,24 @@ class Contrastive(nn.Module):
         self._optim = AdamW(self.parameters(), lr=l_rate, amsgrad=True)
 
         self._device = device
+        self._batch_size = batch_size
 
     def foward(self, x, batch_size, infer):
         """Propagate the given input through the network, and apply stratified normalization to the output."""
 
         # Min-Max normalization
-        x = min_max_norm(x, batch_size)
+        x = min_max_norm(x, self._batch_size)
         # Lstm
         out, _ = self._lstm(x)
-        out = stratified_norm(out, batch_size)
+        out = stratified_norm(out, self._batch_size)
 
         # Fc1
         out = self._fc1(out)
-        out = stratified_norm(out, batch_size)
+        out = stratified_norm(out, self._batch_size)
 
         # Fc2
         out = self._fc2(out)
-        out = stratified_norm(out, batch_size)
+        out = stratified_norm(out, self._batch_size)
 
         # TODO: Multitaper features
 
@@ -98,7 +99,7 @@ class Contrastive(nn.Module):
 
         return out
 
-    def train_net(self, ds, sampler, epochs, batch_size=64, patience=20):
+    def train_net(self, ds, sampler, epochs, patience=20):
         # Keep track of the minimum validation loss and patience
         min_loss = None
         curr_patience = patience
@@ -116,8 +117,8 @@ class Contrastive(nn.Module):
             for batch, _ in train_dl:
                 batch = batch.permute((0, 2, 1)).to(self._device)  # N, L, chan
 
-                preds = self(batch, batch_size)
-                anch, pos, neg = preds[:, :batch_size], preds[:, batch_size:2*batch_size], preds[:, 2*batch_size:]
+                preds = self(batch)
+                anch, pos, neg = preds[:, :self._batch_size], preds[:, self._batch_size:2*self._batch_size], preds[:, 2*self._batch_size:]
 
                 self._optim.zero_grad()
                 loss = self._loss(anch, pos, neg)
@@ -134,7 +135,7 @@ class Contrastive(nn.Module):
             with torch.no_grad():
                 for batch, labels in val_dl:
                     batch = batch.permute((0, 2, 1)).to(self._device)  # N, L, chan
-                    preds = self(batch, batch_size)
+                    preds = self(batch)
                     anch, pos, neg = preds[:, :batch_size], preds[:, batch_size:2*batch_size], preds[:, 2*batch_size:]
 
                     val_loss += self._loss(anch, pos, neg).item()
@@ -157,7 +158,7 @@ class Contrastive(nn.Module):
             # Display some statistics
             logger.info(f'{epoch},{train_loss},{val_loss}')
 
-    def test_net(self, ds, sampler, batch_size=64):
+    def test_net(self, ds, sampler):
         # Instantiate dataloader
         test_dl = DataLoader(ds, batch_sampler=sampler, num_workers=4)
 
@@ -168,8 +169,8 @@ class Contrastive(nn.Module):
             for batch, _ in test_dl:
                 batch = batch.permute((0, 2, 1)).to(self._device)
 
-                preds = self(batch, batch_size)
-                anch, pos, neg = preds[:, :batch_size], preds[:, batch_size:2*batch_size], preds[:, 2*batch_size:]
+                preds = self(batch)
+                anch, pos, neg = preds[:, :self._batch_size], preds[:, self._batch_size:2*self._batch_size], preds[:, 2*self._batch_size:]
                 test_loss += self._loss(anch, pos, neg)
 
         # Print final stats
