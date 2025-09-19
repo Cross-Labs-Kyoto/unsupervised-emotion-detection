@@ -13,3 +13,5 @@ FACED = {'channels': 30,  # Two channels are ignored
          'nb_vids': 28,
          'sample_freq': 250}
 FACED['nb_points'] = FACED['sample_freq'] * FACED['duration']
+
+BANDS = ([4, 7], [8, 13], [14, 30], [31, 50])
