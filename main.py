@@ -7,7 +7,7 @@ import numpy as np
 from loguru import logger
 
 from datasets import load_data, EmotionDataset, TripletSampler
-from networks import Contrastive
+from networks import ContrastiveLSTM
 from settings import FACED, WIN_SIZE, STRIDE
 
 
@@ -33,8 +33,8 @@ if __name__ == "__main__":
 
     # Instantiate model
     logger.info("Loading model")
-    model = Contrastive(in_size=FACED['channels'], hidden_size=FACED['channels'] // 2,
-                        out_size=10, l_rate=args.l_rate, batch_size=args.batch_size, dropout=args.dropout)
+    model = ContrastiveLSTM(in_size=FACED['channels'], hidden_size=FACED['channels'] // 2,
+                            out_size=10, l_rate=args.l_rate, batch_size=args.batch_size, dropout=args.dropout)
 
     # Load model weight if necessary
     if args.weights_file is not None:

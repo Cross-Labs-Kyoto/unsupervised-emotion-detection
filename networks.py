@@ -64,7 +64,7 @@ def multitaper(x, batch_size):
 
     return out
 
-class Contrastive(nn.Module):
+class ContrastiveLSTM(nn.Module):
     """Define a lstm-based network that learns to generate informative representations through contrastive learning."""
 
     def __init__(self, in_size, hidden_size, out_size, nb_lstm=1,  l_rate=1e-4, batch_size=1, dropout=0, bidir=False, device=DEVICE):
