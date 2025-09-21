@@ -53,10 +53,11 @@ if __name__ == "__main__":
         logger.info("Creating dataset")
         data = data.reshape(-1, data.shape[-1])
         emo_ds = EmotionDataset(data, WIN_SIZE, STRIDE, n_segs)
+        emo_dl = DataLoader(emo_ds, shuffle=False, drop_last=False, batch_size=args.batch_size)
 
         # Do the thing
         logger.info("Inference - Here we go!")
-        model.infer(emo_ds)
+        model.inference(emo_dl, args.out_file)
     else:
         # Split the subs between train and test sets
         subs_idx = set(range(n_subs))

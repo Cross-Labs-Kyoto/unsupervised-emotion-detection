@@ -5,9 +5,10 @@ from torch import nn
 from torch.optim import AdamW
 from mne.time_frequency import psd_array_multitaper
 from scipy.integrate import simpson
+from h5py import File
 from loguru import logger
 
-from settings import DEVICE, WEIGHT_DIR, BANDS, FACED
+from settings import DEVICE, WEIGHT_DIR, ROOT_DIR, BANDS, FACED
 
 
 def stratified_norm(x, batch_size):
@@ -122,7 +123,7 @@ class ContrastiveLSTM(nn.Module):
 
         if infer:
             # Extract Multitaper features
-            out = multitaper(x, self._batch_size)
+            out = multitaper(out, self._batch_size)
         else:
             # Head
             out = self._head(out[:, -1, :])
@@ -183,6 +184,10 @@ class ContrastiveLSTM(nn.Module):
             logger.info(f'{epoch},{train_loss},{val_loss}')
 
     def test_net(self, test_dl):
+        # Load the best weights
+        if WEIGHT_DIR.joinpath('contrastive_lstm.pth').exists():
+            self.load_state_dict(torch.load(WEIGHT_DIR.joinpath('contrastive_lstm.pth')), weights_only=True)
+
         # Test
         self.eval()
         test_loss = 0
@@ -197,5 +202,26 @@ class ContrastiveLSTM(nn.Module):
         # Print final stats
         logger.info(f'Test loss: {test_loss / len(test_dl)}')
 
-    def inference(self, ds):
-        pass
+    def inference(self, dl, out_file):
+        if out_file is None:
+            out_file = ROOT_DIR.joinpath('feature_vectors.h5')
+
+        # Create a new hdf5 dataset to store the feature vectors
+        h5_ds = None
+        with File(out_file, 'w') as h5_file:
+            # Extract the feature vectors from the emotion dataset
+            self.eval()
+            with torch.no_grad():
+                for batch in dl:
+                    batch = batch.permute((0, 2, 1)).to(self._device)
+                    vects = self(batch, infer=True).cpu().numpy()
+                    # Append the feature vectors to the dataset
+                    if h5_ds is None:
+                        h5_ds = h5_file.create_dataset('default',
+                                                       data=vects,
+                                                       shape=vects.shape,
+                                                       maxshape=(None, *vects.shape[1:]),
+                                                       chunks=True)
+                    else:
+                        h5_ds.resize(h5_ds.shape[0] + vects.shape[0], axis=0)
+                        h5_ds[-vects.shape[0]:] = vects
