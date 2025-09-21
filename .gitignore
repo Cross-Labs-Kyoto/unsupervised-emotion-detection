@@ -4,6 +4,8 @@ Data/
 uv.lock
 *.pth
 *.h5
+*.png
+*.jpg
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
