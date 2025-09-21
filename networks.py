@@ -3,7 +3,6 @@ import numpy as np
 import torch
 from torch import nn
 from torch.optim import AdamW
-from torch.utils.data import DataLoader, random_split
 from mne.time_frequency import psd_array_multitaper
 from scipy.integrate import simpson
 from loguru import logger
@@ -18,8 +17,12 @@ def stratified_norm(x, batch_size):
     chunks = torch.split(x, batch_size, dim=0)
 
     for i, chk in enumerate(chunks):
-        m = torch.mean(chk, dim=(0, 1), keepdim=True)  # Compute mean across video for same participant, and same channel
-        s = torch.std(chk, dim=(0, 1), keepdim=True)  # Compute std across video for same participant, and same channel
+        if i == 0:
+            m = torch.mean(chk, dim=(0, 1), keepdim=True)  # Compute mean across video for same participant, and same channel
+            s = torch.std(chk, dim=(0, 1), keepdim=True)  # Compute std across video for same participant, and same channel
+        else:
+            m = torch.mean(chk, dim=1, keepdim=True)  # Compute mean across video for same participant, and same channel
+            s = torch.std(chk, dim=1, keepdim=True)  # Compute std across video for same participant, and same channel
         out[i*batch_size:(i+1)*batch_size] = (chk - m) / (s + 1e-3)
 
     return out
@@ -30,8 +33,12 @@ def min_max_norm(x, batch_size):
     chunks = torch.split(x, batch_size, dim=0)
 
     for i, chk in enumerate(chunks):
-        vmin = torch.amin(chk, dim=(0, 1), keepdim=True)  # Compute min value across video for same participant, and same channel
-        vmax = torch.amax(chk, dim=(0, 1), keepdim=True)  # Compute std across video for same participant, and same channel
+        if i == 0:
+            vmin = torch.amin(chk, dim=(0, 1), keepdim=True)  # Compute min value across video for same participant, and same channel
+            vmax = torch.amax(chk, dim=(0, 1), keepdim=True)  # Compute max across video for same participant, and same channel
+        else:
+            vmin = torch.amin(chk, dim=1, keepdim=True)  # Compute min value across video for same participant, and same channel
+            vmax = torch.amax(chk, dim=1, keepdim=True)  # Compute max across video for same participant, and same channel
         out[i*batch_size:(i+1)*batch_size] = (chk - vmin) / (vmax - vmin)
 
     return out
@@ -103,7 +110,6 @@ class Contrastive(nn.Module):
         x = min_max_norm(x, self._batch_size)
         # Lstm
         out, _ = self._lstm(x)
-        # TODO: Should we use only the last output rather than the sequence? => No need for multitaper and stratified_norm -> layerNorm
         out = stratified_norm(out, self._batch_size)
 
         # Fc1
@@ -119,30 +125,24 @@ class Contrastive(nn.Module):
             out = multitaper(x, self._batch_size)
         else:
             # Head
-            out = self._head(out.to(self._device))
+            out = self._head(out[:, -1, :])
 
         return out
 
-    def train_net(self, ds, sampler, epochs, patience=20):
+    def train_net(self, train_dl, val_dl, epochs, patience=20):
         # Keep track of the minimum validation loss and patience
         min_loss = None
         curr_patience = patience
 
-        # Split the dataset into training and validation
-        train_ds, val_ds = random_split(ds, [0.9, 0.1])
-        # Instantiate the dataload with triplet sampler
-        train_dl = DataLoader(train_ds, batch_sampler=sampler, num_workers=4)
-        val_dl = DataLoader(val_ds, batch_sampler=sampler, num_workers=4)
-
-        for epoch in epochs:
+        for epoch in range(epochs):
             # Train
             self.train()
             train_loss = 0
-            for batch, _ in train_dl:
+            for batch in train_dl:
                 batch = batch.permute((0, 2, 1)).to(self._device)  # N, L, chan
 
                 preds = self(batch)
-                anch, pos, neg = preds[:, :self._batch_size], preds[:, self._batch_size:2*self._batch_size], preds[:, 2*self._batch_size:]
+                anch, pos, neg = preds[:self._batch_size], preds[self._batch_size:2*self._batch_size], preds[2*self._batch_size:]
 
                 self._optim.zero_grad()
                 loss = self._loss(anch, pos, neg)
@@ -154,13 +154,13 @@ class Contrastive(nn.Module):
             train_loss /= len(train_dl)
 
             # And validate
-            self = self.eval()
+            self.eval()
             val_loss = 0
             with torch.no_grad():
-                for batch, labels in val_dl:
+                for batch in val_dl:
                     batch = batch.permute((0, 2, 1)).to(self._device)  # N, L, chan
                     preds = self(batch)
-                    anch, pos, neg = preds[:, :self._batch_size], preds[:, self._batch_size:2*self._batch_size], preds[:, 2*self._batch_size:]
+                    anch, pos, neg = preds[:self._batch_size], preds[self._batch_size:2*self._batch_size], preds[2*self._batch_size:]
 
                     val_loss += self._loss(anch, pos, neg).item()
 
@@ -182,25 +182,20 @@ class Contrastive(nn.Module):
             # Display some statistics
             logger.info(f'{epoch},{train_loss},{val_loss}')
 
-    def test_net(self, ds, sampler):
-        # Instantiate dataloader
-        test_dl = DataLoader(ds, batch_sampler=sampler, num_workers=4)
-
+    def test_net(self, test_dl):
         # Test
         self.eval()
         test_loss = 0
         with torch.no_grad():
-            for batch, _ in test_dl:
+            for batch in test_dl:
                 batch = batch.permute((0, 2, 1)).to(self._device)
 
                 preds = self(batch)
-                anch, pos, neg = preds[:, :self._batch_size], preds[:, self._batch_size:2*self._batch_size], preds[:, 2*self._batch_size:]
+                anch, pos, neg = preds[:self._batch_size], preds[self._batch_size:2*self._batch_size], preds[2*self._batch_size:]
                 test_loss += self._loss(anch, pos, neg)
 
         # Print final stats
         logger.info(f'Test loss: {test_loss / len(test_dl)}')
 
     def inference(self, ds):
-        # TODO: Use regular sampler
-        # TODO: Store features in h5py file? Or pyarrow? Or pytable?
         pass

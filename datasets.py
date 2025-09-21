@@ -14,18 +14,6 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
-def get_labels():
-    # Build the list of labels for a single time series
-    label = [0] * 3
-    for i in range(1,4):
-        label.extend([i] * 3)
-    label.extend([4] * 4)
-    for i in range(5,9):
-        label.extend([i] * 3)
-
-    return label
-
-
 def load_data(timeLen, timeStep):
     """
     Loads the FACED - Clisa data from files, builds the associated list of
@@ -45,8 +33,6 @@ def load_data(timeLen, timeStep):
     n_segs = int((FACED['duration'] - timeLen) / timeStep + 1)  # Same formula as output dim of convolution layer
     # Compute the number of segments across all time series
     n_samples = np.ones(FACED['nb_vids']) * n_segs
-
-    logger.debug(f'{n_segs} segments/time series, {n_samples.sum().astype(int)} total segments')
 
     # Get the time series from file
     data_path = DATA_DIR.joinpath('FACED', 'Clisa_data')
@@ -68,31 +54,23 @@ def load_data(timeLen, timeStep):
     data = np.transpose(data, (0,1,3,2)).reshape(n_subs, -1, FACED['channels'])
     logger.debug(f'data reshaped: {data.shape}')
 
-    label = get_labels()
-
-    # Extend the list of labels to all time series
-    label_repeat = []
-    for i in range(len(label)):
-        label_repeat = label_repeat + [label[i]] * n_segs
-
-    return data, label_repeat, n_samples, n_segs, n_subs
+    return data, n_samples, n_segs, n_subs
 
 
 class EmotionDataset(Dataset):
-    def __init__(self, data, label, timeLen, timeStep, n_segs):
+    def __init__(self, data, timeLen, timeStep, n_segs):
         self.data = data.transpose() # nb_channels, tot_nb_points (nb_participants * nb_vids * nb_points)
-        logger.debug(f'Emotion dataset shape: {self.data.shape}')
+        logger.debug(f'Dataset shape: {self.data.shape}')
 
         self.timeLen = timeLen
         self.timeStep = timeStep
         self.n_segs = n_segs
         self.fs = FACED['sample_freq']
-        self.label = torch.from_numpy(label)
         # Given that the kernel and stride do not perfectly divide the duration of a single time series, compute the duration that will be ignored at the end
         self.n_samples_remain_each = FACED['duration'] - n_segs * timeStep
 
     def __len__(self):
-        return len(self.label)
+        return int((self.data.shape[-1] / (self.fs * FACED['duration'])) * self.n_segs)
 
     def __getitem__(self, idx):
         # Based on the given index, extract the right segment for all channels
@@ -102,7 +80,7 @@ class EmotionDataset(Dataset):
 
 
 class TripletSampler(Sampler[list[int]]):
-    def __init__(self, nb_subs, batch_size, nb_samples, labels):
+    def __init__(self, nb_subs, batch_size, nb_samples):
         self.batch_size = batch_size
         self.nb_samples_cum = np.concatenate((np.array([0]), np.cumsum(nb_samples)))
         assert self.batch_size >= len(self.nb_samples_cum) - 1, f"The batch size ({batch_size}) should be greater than the number of videos ({len(self.nb_samples_cum) - 1})."
@@ -110,19 +88,26 @@ class TripletSampler(Sampler[list[int]]):
 
         self.nb_samples_cum_set = set(range(len(self.nb_samples_cum) - 2))
         self.nb_samples_per_trial = int(batch_size / len(nb_samples))
-        self.n_per = int(np.sum(nb_samples))
+        self.n_per = int(np.sum(nb_samples))  # samples per sub = nb_samples * nb_vids
 
         self.subs_set = set(range(nb_subs))
-        self.sub_pairs = combinations(range(nb_subs), 2)
-        self.nb_sub_pairs = len(list(combinations(range(nb_subs), 2)))
+        self.sub_pairs = list(combinations(range(nb_subs), 2))
 
-        self.idx_to_labels = labels
+        # Build the mapping video idx -> label
+        self.idx_to_labels = [0] * 3
+        for i in range(1,4):
+            self.idx_to_labels.extend([i] * 3)
+        self.idx_to_labels.extend([4] * 4)
+        for i in range(5,9):
+            self.idx_to_labels.extend([i] * 3)
+
+        # Build the reverse mapping label -> video idxs
         self.labels_to_idx = defaultdict(list)
-        for idx, label in enumerate(labels):
+        for idx, label in enumerate(self.idx_to_labels):
             self.labels_to_idx[label].append(idx)
 
     def __len__(self):
-        return self.nb_sub_pairs
+        return len(self.sub_pairs)
 
     def __iter__(self):
         for sub_a, sub_p in self.sub_pairs:
@@ -132,7 +117,6 @@ class TripletSampler(Sampler[list[int]]):
 
             # Choose a negative participant different from the anchor and positive participants
             sub_n = np.random.choice(list(self.subs_set - set([sub_a, sub_p])))
-            logger.debug(f'Participants: a - {sub_a}, p - {sub_p}, n - {sub_n}')
 
             for i in range(len(self.nb_samples_cum) - 2):
                 # Get segment indices for the anchor/positive
