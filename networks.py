@@ -82,15 +82,15 @@ class ContrastiveLSTM(nn.Module):
             in_feats = hidden_size
 
         self._fc1 = nn.Sequential(
-            nn.Dropout(dropout, inplace=True),
+            nn.Dropout(dropout),
             nn.Linear(in_feats, in_feats, device=device),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
         )
 
         self._fc2 = nn.Sequential(
-            nn.Dropout(dropout, inplace=True),
+            nn.Dropout(dropout),
             nn.Linear(in_feats, in_feats, device=device),
-            nn.ReLU(inplace=True),
+            nn.ReLU(),
         )
 
         # Declare the fully connected part of the head
@@ -114,19 +114,16 @@ class ContrastiveLSTM(nn.Module):
         out = stratified_norm(out, self._batch_size)
 
         # Fc1
-        out = self._fc1(out)
-        out = stratified_norm(out, self._batch_size)
+        out = self._fc1(out[:, -1, :])
+        #out = stratified_norm(out, self._batch_size)
 
         # Fc2
         out = self._fc2(out)
-        out = stratified_norm(out, self._batch_size)
+        #out = stratified_norm(out, self._batch_size)
 
-        if infer:
-            # Extract Multitaper features
-            out = multitaper(out, self._batch_size)
-        else:
+        if not infer:
             # Head
-            out = self._head(out[:, -1, :])
+            out = self._head(out)
 
         return out
 
