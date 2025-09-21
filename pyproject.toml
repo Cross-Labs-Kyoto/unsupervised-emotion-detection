@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.12"
 dependencies = [
+    "h5py>=3.14.0",
     "joblib>=1.5.2",
     "loguru>=0.7.3",
     "mne>=1.10.1",
