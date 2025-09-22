@@ -2,19 +2,26 @@
 import pickle
 from itertools import combinations
 from collections import defaultdict
+from enum import IntEnum, auto
 import warnings
 import numpy as np
 import torch
 from torch.utils.data import Dataset, Sampler
 
-from settings import DATA_DIR, FACED
+from settings import DATA_DIR, FACED, BANDS
 from loguru import logger
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
-def load_data(timeLen, timeStep):
+class DatasetType(IntEnum):
+    CLISA = auto()
+    DE = auto()
+    PSD = auto()
+
+
+def load_data(timeLen, timeStep, ds_type):
     """
     Loads the FACED - Clisa data from files, builds the associated list of
     labels, and compute various meta-data about the dataset.
@@ -27,6 +34,9 @@ def load_data(timeLen, timeStep):
     timeStep: int
         The length of the stride in second.
 
+    ds_type: IntEnum
+        The dataset to load in memory.
+
     """
 
     # Compute the number of segments available in each time series
@@ -35,29 +45,46 @@ def load_data(timeLen, timeStep):
     n_samples = np.ones(FACED['nb_vids']) * n_segs
 
     # Get the time series from file
-    data_path = DATA_DIR.joinpath('FACED', 'Clisa_data')
-    logger.debug(f'Loading data from: {data_path}')
+    if ds_type == DatasetType.CLISA:
+        data_path = DATA_DIR.joinpath('FACED', 'Clisa_data')
+        logger.debug(f'Loading data from: {data_path}')
+    elif ds_type == DatasetType.DE:
+        data_path = DATA_DIR.joinpath('FACED', 'EEG_Features', 'DE')
+        logger.debug(f'Loading data from: {data_path}')
+    elif ds_type == DatasetType.PDS:
+        data_path = DATA_DIR.joinpath('FACED', 'EEG_Features', 'PSD')
+        logger.debug(f'Loading data from: {data_path}')
     data_paths = [itm for itm in sorted(data_path.iterdir()) if itm.exists() and not itm.is_dir()]
 
-    data = np.zeros((len(data_paths), FACED['nb_vids'], FACED['channels'],
-                     FACED['nb_points']))
+    if ds_type == DatasetType.CLISA:
+        data = np.zeros((len(data_paths), FACED['nb_vids'], FACED['channels'],
+                         FACED['nb_points']))
+    else:
+        data = np.zeros((len(data_paths), FACED['nb_vids'], FACED['channels'], FACED['duration'],
+                         len(BANDS) + 1))
     for idx, path in enumerate(data_paths):
         with path.open('rb') as f:
             data_sub = pickle.load(f)
-            data[idx,:,:,:] = data_sub[:,:-2,:]  # The last two channels are ignored
+            data[idx] = data_sub[:,:-2]  # The last two channels are ignored
 
     # data shape :(sub, vid, chn, fs * sec) -> fs * sec = nb_points
     logger.debug(f'data loaded: {data.shape}')
 
     # Reshape the data
     n_subs = data.shape[0]
-    data = np.transpose(data, (0,1,3,2)).reshape(n_subs, -1, FACED['channels'])
+    if ds_type == DatasetType.CLISA:
+        data = np.transpose(data, (0,1,3,2)).reshape(n_subs, -1, FACED['channels'])
+    else:
+        # Drop the first band since it is considered non-relevant for emotion detection
+        data = data[:, :, :, :, 1:]
+        data = np.transpose(data, (0,1,3,2,4)).reshape(n_subs, -1, FACED['channels'] * len(BANDS))
+
     logger.debug(f'data reshaped: {data.shape}')
 
     return data, n_samples, n_segs, n_subs
 
 
-class EmotionDataset(Dataset):
+class ClisaDataset(Dataset):
     def __init__(self, data, timeLen, timeStep, n_segs):
         self.data = data.transpose() # nb_channels, tot_nb_points (nb_participants * nb_vids * nb_points)
         logger.debug(f'Dataset shape: {self.data.shape}')
@@ -78,6 +105,25 @@ class EmotionDataset(Dataset):
 
         return torch.FloatTensor(one_seq)
 
+class EegDataset(Dataset):
+    def __init__(self, data, timeLen, timeStep, n_segs):
+        self.data = data.transpose() # nb_channels, tot_nb_points (nb_participants * nb_vids * nb_points)
+        logger.debug(f'Dataset shape: {self.data.shape}')
+
+        self.timeLen = timeLen
+        self.timeStep = timeStep
+        self.n_segs = n_segs
+        # Given that the kernel and stride do not perfectly divide the duration of a single time series, compute the duration that will be ignored at the end
+        self.n_samples_remain_each = FACED['duration'] - n_segs * timeStep
+
+    def __len__(self):
+        return int((self.data.shape[-1] / FACED['duration']) * self.n_segs)
+
+    def __getitem__(self, idx):
+        # Based on the given index, extract the right segment for all channels
+        one_seq = self.data[:, int(idx * self.timeStep + self.n_samples_remain_each * np.floor(idx / self.n_segs)):int(idx * self.timeStep + self.timeLen + self.n_samples_remain_each * np.floor(idx / self.n_segs))]
+
+        return torch.FloatTensor(one_seq)
 
 class TripletSampler(Sampler[list[int]]):
     def __init__(self, nb_subs, batch_size, nb_samples):
