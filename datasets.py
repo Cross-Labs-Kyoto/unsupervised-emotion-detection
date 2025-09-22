@@ -21,6 +21,29 @@ class DatasetType(IntEnum):
     PSD = auto()
 
 
+def get_labels(n_subs=None, n_segs=None):
+    labels = [0] * 3
+    for i in range(1,4):
+        labels.extend([i] * 3)
+    labels.extend([4] * 4)
+    for i in range(5,9):
+        labels.extend([i] * 3)
+
+    labels = np.array(labels, dtype=int)
+
+    if n_segs is not None:
+        label_segs = []
+        for i in range(len(labels)):
+            label_segs.extend([labels[i]] * n_segs)
+
+        labels = np.array(label_segs, dtype=int)
+
+    if n_subs is not None:
+        labels = np.tile(labels, n_subs)
+
+    return labels
+
+
 def load_data(timeLen, timeStep, ds_type):
     """
     Loads the FACED - Clisa data from files, builds the associated list of
@@ -85,7 +108,7 @@ def load_data(timeLen, timeStep, ds_type):
 
 
 class ClisaDataset(Dataset):
-    def __init__(self, data, timeLen, timeStep, n_segs):
+    def __init__(self, data, timeLen, timeStep, n_subs, n_segs):
         self.data = data.transpose() # nb_channels, tot_nb_points (nb_participants * nb_vids * nb_points)
         logger.debug(f'Dataset shape: {self.data.shape}')
 
@@ -96,6 +119,8 @@ class ClisaDataset(Dataset):
         # Given that the kernel and stride do not perfectly divide the duration of a single time series, compute the duration that will be ignored at the end
         self.n_samples_remain_each = FACED['duration'] - n_segs * timeStep
 
+        self.labels = get_labels(n_subs, n_segs)
+
     def __len__(self):
         return int((self.data.shape[-1] / (self.fs * FACED['duration'])) * self.n_segs)
 
@@ -103,10 +128,10 @@ class ClisaDataset(Dataset):
         # Based on the given index, extract the right segment for all channels
         one_seq = self.data[:, int((idx * self.timeStep + self.n_samples_remain_each * np.floor(idx / self.n_segs)) * self.fs):int((idx * self.timeStep + self.timeLen + self.n_samples_remain_each * np.floor(idx / self.n_segs)) * self.fs)]
 
-        return torch.FloatTensor(one_seq)
+        return torch.FloatTensor(one_seq), self.labels[idx]
 
 class EegDataset(Dataset):
-    def __init__(self, data, timeLen, timeStep, n_segs):
+    def __init__(self, data, timeLen, timeStep, n_subs, n_segs):
         self.data = data.transpose() # nb_channels, tot_nb_points (nb_participants * nb_vids * nb_points)
         logger.debug(f'Dataset shape: {self.data.shape}')
 
@@ -116,6 +141,8 @@ class EegDataset(Dataset):
         # Given that the kernel and stride do not perfectly divide the duration of a single time series, compute the duration that will be ignored at the end
         self.n_samples_remain_each = FACED['duration'] - n_segs * timeStep
 
+        self.labels = get_labels(n_subs, n_segs)
+
     def __len__(self):
         return int((self.data.shape[-1] / FACED['duration']) * self.n_segs)
 
@@ -123,7 +150,7 @@ class EegDataset(Dataset):
         # Based on the given index, extract the right segment for all channels
         one_seq = self.data[:, int(idx * self.timeStep + self.n_samples_remain_each * np.floor(idx / self.n_segs)):int(idx * self.timeStep + self.timeLen + self.n_samples_remain_each * np.floor(idx / self.n_segs))]
 
-        return torch.FloatTensor(one_seq)
+        return torch.FloatTensor(one_seq), self.labels[idx]
 
 class TripletSampler(Sampler[list[int]]):
     def __init__(self, nb_subs, batch_size, nb_samples):
@@ -140,12 +167,7 @@ class TripletSampler(Sampler[list[int]]):
         self.sub_pairs = list(combinations(range(nb_subs), 2))
 
         # Build the mapping video idx -> label
-        self.idx_to_labels = [0] * 3
-        for i in range(1,4):
-            self.idx_to_labels.extend([i] * 3)
-        self.idx_to_labels.extend([4] * 4)
-        for i in range(5,9):
-            self.idx_to_labels.extend([i] * 3)
+        self.idx_to_labels = get_labels().tolist()
 
         # Build the reverse mapping label -> video idxs
         self.labels_to_idx = defaultdict(list)
