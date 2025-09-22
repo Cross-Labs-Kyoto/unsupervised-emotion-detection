@@ -7,7 +7,7 @@ import numpy as np
 from loguru import logger
 
 from datasets import load_data, EegDataset, TripletSampler, DatasetType
-from networks import ContrastiveLSTM
+from networks import ContrastiveLSTM, ContrastiveFC
 from settings import FACED, WIN_SIZE, STRIDE, BANDS
 
 
@@ -30,13 +30,21 @@ if __name__ == "__main__":
                         help='The relative path to the file in which to write the extracted feature vectors. This is only taken into account when `-i/--infer` is specified.')
     parser.add_argument('--psd', dest='psd', action='store_true',
                         help='A flag indicating whether to use the Power Spectral Density features, or the Differential Entropy.')
+    parser.add_argument('--lstm', dest='lstm', action='store_true',
+                        help='A flag indicating whether to use an LSTM-based architecture, instead of a Fully Connected one.')
 
     args = parser.parse_args()
 
     # Instantiate model
-    logger.info("Loading model")
-    model = ContrastiveLSTM(in_size=FACED['channels'] * len(BANDS), hidden_size=60,
-                            out_size=30, l_rate=args.l_rate, batch_size=args.batch_size, dropout=args.dropout)
+    if args.lstm:
+        logger.info("Loading model - LSTM")
+        model = ContrastiveLSTM(in_size=FACED['channels'] * len(BANDS), hidden_size=60,
+                                out_size=30, l_rate=args.l_rate, batch_size=args.batch_size, dropout=args.dropout)
+    else:
+        logger.info("Loading model - FC")
+        model = ContrastiveFC(in_size=120, out_size=10, hid_sizes=[60, 60], l_rate=args.l_rate, batch_size=args.batch_size, dropout=args.dropout)
+        WIN_SIZE = 1
+        STRIDE = 1
 
     # Load model weight if necessary
     if args.weights_file is not None:
@@ -67,9 +75,9 @@ if __name__ == "__main__":
         # Split the subs between train and test sets
         subs_idx = set(range(n_subs))
 
-        test_sub = np.random.choice(list(subs_idx), int(len(subs_idx) * 0.2)).tolist()
-        subs_idx.difference_update(set(test_sub))
+        test_sub = np.random.choice(list(subs_idx), int(len(subs_idx) * 0.1)).tolist()
 
+        subs_idx.difference_update(set(test_sub))
         val_sub = np.random.choice(list(subs_idx), int(len(subs_idx) * 0.1)).tolist()
 
         train_sub = list(subs_idx.difference(set(val_sub)))
