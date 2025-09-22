@@ -8,12 +8,13 @@ from scipy.integrate import simpson
 from h5py import File
 from loguru import logger
 
-from settings import DEVICE, WEIGHT_DIR, ROOT_DIR, BANDS, FACED
+from settings import DEVICE, WEIGHT_DIR, ROOT_DIR, BANDS, FACED, WIN_SIZE
 
 
 def stratified_norm(x, batch_size):
     """Compute the [stratified norm](https://www.frontiersin.org/journals/neuroscience/articles/10.3389/fnins.2021.626277/full) of the given input."""
 
+    # TODO: Not sure the is the right method for FC layers, but even in general
     out = x.clone()
     chunks = torch.split(x, batch_size, dim=0)
 
@@ -87,7 +88,7 @@ class ContrastiveLSTM(nn.Module):
 
         # Declare the fully connected part of the head
         # The output activation is left out on purpose to allow for customization down the line
-        self._head = nn.Linear(in_feats * 5, out_size, device=device)
+        self._head = nn.Linear(in_feats * WIN_SIZE, out_size, device=device)
 
         # Declare loss and optimizer
         self._loss = nn.TripletMarginLoss()
@@ -129,7 +130,7 @@ class ContrastiveLSTM(nn.Module):
             # Train
             self.train()
             train_loss = 0
-            for batch in train_dl:
+            for batch, _ in train_dl:
                 batch = batch.permute((0, 2, 1)).to(self._device)  # N, L, chan
 
                 preds = self(batch)
@@ -148,7 +149,7 @@ class ContrastiveLSTM(nn.Module):
             self.eval()
             val_loss = 0
             with torch.no_grad():
-                for batch in val_dl:
+                for batch, _ in val_dl:
                     batch = batch.permute((0, 2, 1)).to(self._device)  # N, L, chan
                     preds = self(batch)
                     anch, pos, neg = preds[:self._batch_size], preds[self._batch_size:2*self._batch_size], preds[2*self._batch_size:]
@@ -182,7 +183,7 @@ class ContrastiveLSTM(nn.Module):
         self.eval()
         test_loss = 0
         with torch.no_grad():
-            for batch in test_dl:
+            for batch, _ in test_dl:
                 batch = batch.permute((0, 2, 1)).to(self._device)
 
                 preds = self(batch)
@@ -202,9 +203,10 @@ class ContrastiveLSTM(nn.Module):
             # Extract the feature vectors from the emotion dataset
             self.eval()
             with torch.no_grad():
-                for batch in dl:
+                for batch, labels in dl:
                     batch = batch.permute((0, 2, 1)).to(self._device)
                     vects = self(batch, infer=True).cpu().numpy()
+                    # TODO: Store the labels alongside the feature vectors
                     # Append the feature vectors to the dataset
                     if h5_ds is None:
                         h5_ds = h5_file.create_dataset('default',
