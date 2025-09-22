@@ -33,7 +33,11 @@ if __name__ == "__main__":
         # Import feature vectors
         h5_ds = h5_f['default']
 
-        logger.info('Dimensionality reduction')
+        if args.tsne:
+            logger.info('Dimensionality reduction - T-SNE')
+        else:
+            logger.info('Dimensionality reduction - UMAP')
+
         # Fit and transform the feature vectors
         fit_ds = reducer.fit_transform(h5_ds)
 
