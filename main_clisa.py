@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 from loguru import logger
 
-from datasets import load_data, EmotionDataset, TripletSampler
+from datasets import load_data, ClisaDataset, TripletSampler, DatasetType
 from networks import ContrastiveLSTM
 from settings import FACED, WIN_SIZE, STRIDE
 
@@ -45,14 +45,14 @@ if __name__ == "__main__":
 
     # Load data
     logger.info("Loading data")
-    data, n_samples, n_segs, n_subs = load_data(WIN_SIZE, STRIDE)
+    data, n_samples, n_segs, n_subs = load_data(WIN_SIZE, STRIDE, DatasetType.CLISA)
 
 
     if args.infer:
         # Build dataset
         logger.info("Creating dataset")
         data = data.reshape(-1, data.shape[-1])
-        emo_ds = EmotionDataset(data, WIN_SIZE, STRIDE, n_segs)
+        emo_ds = ClisaDataset(data, WIN_SIZE, STRIDE, n_segs)
         emo_dl = DataLoader(emo_ds, shuffle=False, drop_last=False, batch_size=args.batch_size)
 
         # Do the thing
@@ -72,9 +72,9 @@ if __name__ == "__main__":
         logger.info("Train/Validate - Here we go!")
         # Build datasets and associated loaders
         logger.info("Creating datasets")
-        train_ds = EmotionDataset(data[train_sub].reshape(-1, data.shape[-1]),
+        train_ds = ClisaDataset(data[train_sub].reshape(-1, data.shape[-1]),
                                   WIN_SIZE, STRIDE, n_segs)
-        val_ds = EmotionDataset(data[val_sub].reshape(-1, data.shape[-1]),
+        val_ds = ClisaDataset(data[val_sub].reshape(-1, data.shape[-1]),
                                 WIN_SIZE, STRIDE, n_segs)
 
         # Instantiate the corresponding loaders
@@ -89,7 +89,7 @@ if __name__ == "__main__":
         logger.info("Test - Here we go!")
         # Build dataset and associated loader
         logger.info("Creating datasets")
-        test_ds = EmotionDataset(data[test_sub].reshape(-1, data.shape[-1]),
+        test_ds = ClisaDataset(data[test_sub].reshape(-1, data.shape[-1]),
                                  WIN_SIZE, STRIDE, n_segs)
         test_dl = DataLoader(test_ds,
                              batch_sampler=TripletSampler(len(test_sub), args.batch_size, n_samples),
