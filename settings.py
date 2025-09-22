@@ -15,7 +15,7 @@ FACED = {'channels': 30,  # Two channels are ignored
          'nb_vids': 28,
          'sample_freq': 250}
 FACED['nb_points'] = FACED['sample_freq'] * FACED['duration']
-BANDS = ([4, 7], [8, 13], [14, 30], [31, 50])
+BANDS = ([4, 8], [8, 14], [14, 31], [31, 50])
 
 # Configure training/inference process
 WIN_SIZE = 5
