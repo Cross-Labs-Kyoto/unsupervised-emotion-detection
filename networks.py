@@ -18,12 +18,8 @@ def stratified_norm(x, batch_size):
     chunks = torch.split(x, batch_size, dim=0)
 
     for i, chk in enumerate(chunks):
-        if i == 0:
-            m = torch.mean(chk, dim=(0, 1), keepdim=True)  # Compute mean across video for same participant, and same channel
-            s = torch.std(chk, dim=(0, 1), keepdim=True)  # Compute std across video for same participant, and same channel
-        else:
-            m = torch.mean(chk, dim=1, keepdim=True)  # Compute mean across video for same participant, and same channel
-            s = torch.std(chk, dim=1, keepdim=True)  # Compute std across video for same participant, and same channel
+        m = torch.mean(chk, dim=(0, 1), keepdim=True)  # Compute mean across video for same participant, and same channel
+        s = torch.std(chk, dim=(0, 1), keepdim=True)  # Compute std across video for same participant, and same channel
         out[i*batch_size:(i+1)*batch_size] = (chk - m) / (s + 1e-3)
 
     return out
@@ -34,12 +30,8 @@ def min_max_norm(x, batch_size):
     chunks = torch.split(x, batch_size, dim=0)
 
     for i, chk in enumerate(chunks):
-        if i == 0:
-            vmin = torch.amin(chk, dim=(0, 1), keepdim=True)  # Compute min value across video for same participant, and same channel
-            vmax = torch.amax(chk, dim=(0, 1), keepdim=True)  # Compute max across video for same participant, and same channel
-        else:
-            vmin = torch.amin(chk, dim=1, keepdim=True)  # Compute min value across video for same participant, and same channel
-            vmax = torch.amax(chk, dim=1, keepdim=True)  # Compute max across video for same participant, and same channel
+        vmin = torch.amin(chk, dim=(0, 1), keepdim=True)  # Compute min value across video for same participant, and same channel
+        vmax = torch.amax(chk, dim=(0, 1), keepdim=True)  # Compute max across video for same participant, and same channel
         out[i*batch_size:(i+1)*batch_size] = (chk - vmin) / (vmax - vmin)
 
     return out
