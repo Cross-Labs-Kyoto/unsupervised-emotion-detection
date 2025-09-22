@@ -130,6 +130,7 @@ class ClisaDataset(Dataset):
 
         return torch.FloatTensor(one_seq), self.labels[idx]
 
+
 class EegDataset(Dataset):
     def __init__(self, data, timeLen, timeStep, n_subs, n_segs):
         self.data = data.transpose() # nb_channels, tot_nb_points (nb_participants * nb_vids * nb_points)
@@ -151,6 +152,7 @@ class EegDataset(Dataset):
         one_seq = self.data[:, int(idx * self.timeStep + self.n_samples_remain_each * np.floor(idx / self.n_segs)):int(idx * self.timeStep + self.timeLen + self.n_samples_remain_each * np.floor(idx / self.n_segs))]
 
         return torch.FloatTensor(one_seq), self.labels[idx]
+
 
 class TripletSampler(Sampler[list[int]]):
     def __init__(self, nb_subs, batch_size, nb_samples):
