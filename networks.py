@@ -2,7 +2,7 @@
 import numpy as np
 import torch
 from torch import nn
-from torch.optim import AdamW
+from torch.optim import Adam
 from mne.time_frequency import psd_array_multitaper
 from scipy.integrate import simpson
 from h5py import File
@@ -21,7 +21,7 @@ def stratified_norm(x, batch_size):
     for i, chk in enumerate(chunks):
         m = torch.mean(chk, dim=(0, 1), keepdim=True)  # Compute mean across video for same participant, and same channel
         s = torch.std(chk, dim=(0, 1), keepdim=True)  # Compute std across video for same participant, and same channel
-        out[i*batch_size:(i+1)*batch_size] = (chk - m) / (s + 1e-3)
+        out[i*batch_size:(i+1)*batch_size] = (chk - m) / (s + 1e-8)
 
     return out
 
@@ -58,10 +58,11 @@ def multitaper(x, batch_size):
 
     return out
 
+
 class ContrastiveLSTM(nn.Module):
     """Define a lstm-based network that learns to generate informative representations through contrastive learning."""
 
-    def __init__(self, in_size, hidden_size, out_size, nb_lstm=1,  l_rate=1e-4, batch_size=1, dropout=0, bidir=False, device=DEVICE):
+    def __init__(self, in_size, hidden_size, out_size, nb_lstm=1,  l_rate=1e-4, batch_size=1, dropout=0.25, bidir=False, device=DEVICE):
         """Instantiate the lstm-based network, define the output, and declare the optimizer and loss."""
 
         super().__init__()
@@ -92,7 +93,7 @@ class ContrastiveLSTM(nn.Module):
 
         # Declare loss and optimizer
         self._loss = nn.TripletMarginLoss()
-        self._optim = AdamW(self.parameters(), lr=l_rate, amsgrad=True)
+        self._optim = Adam(self.parameters(), lr=l_rate)
 
         self._device = device
         self._batch_size = batch_size
@@ -195,7 +196,7 @@ class ContrastiveLSTM(nn.Module):
 
     def inference(self, dl, out_file):
         if out_file is None:
-            out_file = ROOT_DIR.joinpath('feature_vectors.h5')
+            out_file = ROOT_DIR.joinpath('Results', 'feature_vectors.h5')
 
         # Create a new hdf5 dataset to store the feature vectors
         h5_ds = None
@@ -205,6 +206,143 @@ class ContrastiveLSTM(nn.Module):
             with torch.no_grad():
                 for batch, labels in dl:
                     batch = batch.permute((0, 2, 1)).to(self._device)
+                    vects = self(batch, infer=True).cpu().numpy()
+                    # TODO: Store the labels alongside the feature vectors
+                    # Append the feature vectors to the dataset
+                    if h5_ds is None:
+                        h5_ds = h5_file.create_dataset('default',
+                                                       data=vects,
+                                                       shape=vects.shape,
+                                                       maxshape=(None, *vects.shape[1:]),
+                                                       chunks=True)
+                    else:
+                        h5_ds.resize(h5_ds.shape[0] + vects.shape[0], axis=0)
+                        h5_ds[-vects.shape[0]:] = vects
+
+
+class ContrastiveFC(nn.Module):
+    def __init__(self, in_size, out_size, hid_sizes, l_rate=1e-4, batch_size=1, dropout=0.25):
+        super().__init__()
+
+        # Build the body of the model
+        in_feats = [in_size] + hid_sizes
+        self._lays = [nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(in_f, out_f, device=DEVICE),
+            nn.LayerNorm(out_f, device=DEVICE),
+            nn.LeakyReLU()
+        ) for in_f, out_f in zip(in_feats, hid_sizes)]
+
+        # Build the head separately
+        self._head = nn.Sequential(nn.Dropout(dropout),
+                                   nn.Linear(hid_sizes[-1], out_size, device=DEVICE))
+
+        # Declare the optimizer and loss
+        self._optim = Adam(self.parameters(), lr=l_rate)
+        self._loss = nn.TripletMarginLoss()
+
+        # Keep track of the batch size
+        self._batch_size = batch_size
+
+    def forward(self, x, infer=False):
+        # Min_max normalization
+        out = min_max_norm(x, self._batch_size)
+
+        # Propagate the input through the model's body
+        for lay in self._lays:
+            out = lay(out)
+            #out = stratified_norm(out, self._batch_size)
+
+        if not infer:
+            # Propagate through the head
+            out = self._head(out)
+
+        return out
+
+    def train_net(self, train_dl, val_dl, epochs, patience=20):
+        # Keep track of the minimum validation loss and patience
+        min_loss = None
+        curr_patience = patience
+
+        for epoch in range(epochs):
+            # Train
+            self.train()
+            train_loss = 0
+            for batch, _ in train_dl:
+                batch = batch.squeeze(2).to(DEVICE)  # N, FEAT
+
+                preds = self(batch)
+                anch, pos, neg = preds[:self._batch_size], preds[self._batch_size:2*self._batch_size], preds[2*self._batch_size:]
+
+                self._optim.zero_grad()
+                loss = self._loss(anch, pos, neg)
+                loss.backward()
+                self._optim.step()
+
+                train_loss += loss.item()
+
+            train_loss /= len(train_dl)
+
+            # And validate
+            self.eval()
+            val_loss = 0
+            with torch.no_grad():
+                for batch, _ in val_dl:
+                    batch = batch.squeeze(2).to(DEVICE)  # N, L, chan
+                    preds = self(batch)
+                    anch, pos, neg = preds[:self._batch_size], preds[self._batch_size:2*self._batch_size], preds[2*self._batch_size:]
+
+                    val_loss += self._loss(anch, pos, neg).item()
+
+            # Check stop criterion
+            val_loss /= len(val_dl)
+
+            if min_loss is None or val_loss < min_loss:
+                min_loss = val_loss
+                curr_patience = patience
+
+                # Save weights to file
+                torch.save(self.state_dict(), WEIGHT_DIR.joinpath('contrastive_fc.pth'))
+            else:
+                curr_patience -= 1
+
+            if curr_patience <= 0:
+                break
+
+            # Display some statistics
+            logger.info(f'{epoch},{train_loss},{val_loss}')
+
+    def test_net(self, test_dl):
+        # Load the best weights
+        if WEIGHT_DIR.joinpath('contrastive_fc.pth').exists():
+            self.load_state_dict(torch.load(WEIGHT_DIR.joinpath('contrastive_fc.pth'), weights_only=True))
+
+        # Test
+        self.eval()
+        test_loss = 0
+        with torch.no_grad():
+            for batch, _ in test_dl:
+                batch = batch.squeeze(2).to(DEVICE)  # N, FEAT
+
+                preds = self(batch)
+                anch, pos, neg = preds[:self._batch_size], preds[self._batch_size:2*self._batch_size], preds[2*self._batch_size:]
+                test_loss += self._loss(anch, pos, neg)
+
+        # Print final stats
+        logger.info(f'Test loss: {test_loss / len(test_dl)}')
+
+    def inference(self, dl, out_file):
+        if out_file is None:
+            out_file = ROOT_DIR.joinpath('Results', 'feature_vectors.h5')
+
+        # Create a new hdf5 dataset to store the feature vectors
+        h5_ds = None
+        with File(out_file, 'w') as h5_file:
+            # Extract the feature vectors from the emotion dataset
+            self.eval()
+            with torch.no_grad():
+                for batch, labels in dl:
+                    batch = batch.squeeze(2).to(DEVICE)  # N, FEAT
                     vects = self(batch, infer=True).cpu().numpy()
                     # TODO: Store the labels alongside the feature vectors
                     # Append the feature vectors to the dataset
