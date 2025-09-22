@@ -57,7 +57,7 @@ if __name__ == "__main__":
         # Build dataset
         logger.info("Creating dataset")
         data = data.reshape(-1, data.shape[-1])
-        emo_ds = EegDataset(data, WIN_SIZE, STRIDE, n_segs)
+        emo_ds = EegDataset(data, WIN_SIZE, STRIDE, n_subs, n_segs)
         emo_dl = DataLoader(emo_ds, shuffle=False, drop_last=False, batch_size=args.batch_size)
 
         # Do the thing
@@ -78,15 +78,15 @@ if __name__ == "__main__":
         # Build datasets and associated loaders
         logger.info("Creating datasets")
         train_ds = EegDataset(data[train_sub].reshape(-1, data.shape[-1]),
-                              WIN_SIZE, STRIDE, n_segs)
+                              WIN_SIZE, STRIDE, len(train_sub), n_segs)
         val_ds = EegDataset(data[val_sub].reshape(-1, data.shape[-1]),
-                            WIN_SIZE, STRIDE, n_segs)
+                            WIN_SIZE, STRIDE, len(val_sub), n_segs)
 
         # Instantiate the corresponding loaders
         train_dl = DataLoader(train_ds,
-                              batch_sampler=TripletSampler(len(train_sub), args.batch_size, n_samples))
+                              batch_sampler=TripletSampler(len(train_sub), args.batch_size, n_samples), num_workers=4)
         val_dl = DataLoader(val_ds,
-                            batch_sampler=TripletSampler(len(val_sub), args.batch_size, n_samples))
+                            batch_sampler=TripletSampler(len(val_sub), args.batch_size, n_samples), num_workers=4)
 
         # Train and validate
         model.train_net(train_dl, val_dl, args.epochs, patience=10)
@@ -95,7 +95,7 @@ if __name__ == "__main__":
         # Build dataset and associated loader
         logger.info("Creating datasets")
         test_ds = EegDataset(data[test_sub].reshape(-1, data.shape[-1]),
-                             WIN_SIZE, STRIDE, n_segs)
+                             WIN_SIZE, STRIDE, len(test_sub), n_segs)
         test_dl = DataLoader(test_ds,
                              batch_sampler=TripletSampler(len(test_sub), args.batch_size, n_samples),
                              num_workers=4)

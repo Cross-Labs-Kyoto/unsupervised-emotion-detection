@@ -52,7 +52,7 @@ if __name__ == "__main__":
         # Build dataset
         logger.info("Creating dataset")
         data = data.reshape(-1, data.shape[-1])
-        emo_ds = ClisaDataset(data, WIN_SIZE, STRIDE, n_segs)
+        emo_ds = ClisaDataset(data, WIN_SIZE, STRIDE, n_subs, n_segs)
         emo_dl = DataLoader(emo_ds, shuffle=False, drop_last=False, batch_size=args.batch_size)
 
         # Do the thing
@@ -73,9 +73,9 @@ if __name__ == "__main__":
         # Build datasets and associated loaders
         logger.info("Creating datasets")
         train_ds = ClisaDataset(data[train_sub].reshape(-1, data.shape[-1]),
-                                  WIN_SIZE, STRIDE, n_segs)
+                                  WIN_SIZE, STRIDE, len(train_sub), n_segs)
         val_ds = ClisaDataset(data[val_sub].reshape(-1, data.shape[-1]),
-                                WIN_SIZE, STRIDE, n_segs)
+                                WIN_SIZE, STRIDE, len(val_sub), n_segs)
 
         # Instantiate the corresponding loaders
         train_dl = DataLoader(train_ds,
@@ -90,7 +90,7 @@ if __name__ == "__main__":
         # Build dataset and associated loader
         logger.info("Creating datasets")
         test_ds = ClisaDataset(data[test_sub].reshape(-1, data.shape[-1]),
-                                 WIN_SIZE, STRIDE, n_segs)
+                                 WIN_SIZE, STRIDE, len(test_sub), n_segs)
         test_dl = DataLoader(test_ds,
                              batch_sampler=TripletSampler(len(test_sub), args.batch_size, n_samples),
                              num_workers=4)
