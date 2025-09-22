@@ -87,7 +87,7 @@ class ContrastiveLSTM(nn.Module):
 
         # Declare the fully connected part of the head
         # The output activation is left out on purpose to allow for customization down the line
-        self._head = nn.Linear(in_feats, out_size, device=device)
+        self._head = nn.Linear(in_feats * 5, out_size, device=device)
 
         # Declare loss and optimizer
         self._loss = nn.TripletMarginLoss()
@@ -106,12 +106,13 @@ class ContrastiveLSTM(nn.Module):
         out = stratified_norm(out, self._batch_size)
 
         # Fc1
-        out = self._fc1(out[:, -1, :])
-        #out = stratified_norm(out, self._batch_size)
+        out = self._fc1(out)
+        out = stratified_norm(out, self._batch_size)
 
         # Fc2
         out = self._fc2(out)
-        #out = stratified_norm(out, self._batch_size)
+        out = stratified_norm(out, self._batch_size)
+        out = nn.Flatten()(out)
 
         if not infer:
             # Head
@@ -175,7 +176,7 @@ class ContrastiveLSTM(nn.Module):
     def test_net(self, test_dl):
         # Load the best weights
         if WEIGHT_DIR.joinpath('contrastive_lstm.pth').exists():
-            self.load_state_dict(torch.load(WEIGHT_DIR.joinpath('contrastive_lstm.pth')), weights_only=True)
+            self.load_state_dict(torch.load(WEIGHT_DIR.joinpath('contrastive_lstm.pth'), weights_only=True))
 
         # Test
         self.eval()
