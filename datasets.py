@@ -74,7 +74,7 @@ def load_data(timeLen, timeStep, ds_type):
     elif ds_type == DatasetType.DE:
         data_path = DATA_DIR.joinpath('FACED', 'EEG_Features', 'DE')
         logger.debug(f'Loading data from: {data_path}')
-    elif ds_type == DatasetType.PDS:
+    elif ds_type == DatasetType.PSD:
         data_path = DATA_DIR.joinpath('FACED', 'EEG_Features', 'PSD')
         logger.debug(f'Loading data from: {data_path}')
     data_paths = [itm for itm in sorted(data_path.iterdir()) if itm.exists() and not itm.is_dir()]
@@ -96,12 +96,22 @@ def load_data(timeLen, timeStep, ds_type):
     # Reshape the data
     n_subs = data.shape[0]
     if ds_type == DatasetType.CLISA:
-        data = np.transpose(data, (0,1,3,2)).reshape(n_subs, -1, FACED['channels'])
+        data = np.transpose(data, (0,1,3,2))
+
+        # Min_max normalization
+        d_min = data.min(axis=1, keepdims=True)
+        d_max = data.max(axis=1, keepdims=True)
+        data = ((data - d_min) / (d_max - d_min)).reshape(n_subs, -1, FACED['channels'])
+
     else:
         # Drop the first band since it is considered non-relevant for emotion detection
         data = data[:, :, :, :, 1:]
         data = np.transpose(data, (0,1,3,2,4)).reshape(n_subs, -1, FACED['channels'] * len(BANDS))
 
+        # Min_max normalization
+        d_min = data.min(axis=1, keepdims=True)
+        d_max = data.max(axis=1, keepdims=True)
+        data = (data - d_min) / (d_max - d_min)
     logger.debug(f'data reshaped: {data.shape}')
 
     return data, n_samples, n_segs, n_subs
