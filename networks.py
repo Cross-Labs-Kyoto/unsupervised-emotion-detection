@@ -1,60 +1,30 @@
 #!/usr/bin/env python3
-import numpy as np
 import torch
 from torch import nn
-from torch.optim import Adam
-from mne.time_frequency import psd_array_multitaper
-from scipy.integrate import simpson
+from torch.optim import AdamW
+from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
 from h5py import File
 from loguru import logger
 
-from settings import DEVICE, WEIGHT_DIR, ROOT_DIR, BANDS, FACED, WIN_SIZE
+from settings import DEVICE, WEIGHT_DIR, ROOT_DIR, WIN_SIZE, FACED
 
 
 def stratified_norm(x, batch_size):
     """Compute the [stratified norm](https://www.frontiersin.org/journals/neuroscience/articles/10.3389/fnins.2021.626277/full) of the given input."""
 
-    # TODO: Not sure the is the right method for FC layers, but even in general
     out = x.clone()
     chunks = torch.split(x, batch_size, dim=0)
 
-    for i, chk in enumerate(chunks):
-        m = torch.mean(chk, dim=(0, 1), keepdim=True)  # Compute mean across video for same participant, and same channel
-        s = torch.std(chk, dim=(0, 1), keepdim=True)  # Compute std across video for same participant, and same channel
-        out[i*batch_size:(i+1)*batch_size] = (chk - m) / (s + 1e-8)
-
-    return out
-
-
-def min_max_norm(x, batch_size):
-    out = x.clone()
-    chunks = torch.split(x, batch_size, dim=0)
-
-    for i, chk in enumerate(chunks):
-        vmin = torch.amin(chk, dim=(0, 1), keepdim=True)  # Compute min value across video for same participant, and same channel
-        vmax = torch.amax(chk, dim=(0, 1), keepdim=True)  # Compute max across video for same participant, and same channel
-        out[i*batch_size:(i+1)*batch_size] = (chk - vmin) / (vmax - vmin)
-
-    return out
-
-
-def multitaper(x, batch_size):
-    out = torch.zeros((x.shape[0], x.shape[-1] * len(BANDS))) # batch, seq, feat
-    x = x.permute((0, 2, 1)).cpu().numpy()  # batch, feat, seq
-    for vid in range(x.shape[0]):
-        for feat in range(x.shape[1]):
-            data = x[vid, feat]
-            for i, band in enumerate(BANDS):
-                low, high = band
-                psd_trial, freqs = psd_array_multitaper(data, FACED['sample_freq'],
-                                                        adaptive=True,
-                                                        n_jobs=-1,
-                                                        normalization='full',
-                                                        verbose=False)
-                freq_res = freqs[1] - freqs[0]
-                idx_band = np.logical_and(freqs >= low, freqs <= high)
-
-                out[vid, i + feat] = simpson(psd_trial[idx_band], dx=freq_res)  # Band power
+    if len(x.shape) > 2:
+        for i, chk in enumerate(chunks):
+            m = torch.mean(chk, dim=(0, 1), keepdim=True)  # Compute mean across video for same participant, and same channel
+            s = torch.std(chk, dim=(0, 1), keepdim=True)  # Compute std across video for same participant, and same channel
+            out[i*batch_size:(i+1)*batch_size] = (chk - m) / (s + 1e-8)
+    else:
+        for i, chk in enumerate(chunks):
+            m = torch.mean(chk, dim=0, keepdim=True)  # Compute mean across video for same participant, and same channel
+            s = torch.std(chk, dim=0, keepdim=True)  # Compute std across video for same participant, and same channel
+            out[i*batch_size:(i+1)*batch_size] = (chk - m) / (s + 1e-8)
 
     return out
 
@@ -62,38 +32,41 @@ def multitaper(x, batch_size):
 class ContrastiveLSTM(nn.Module):
     """Define a lstm-based network that learns to generate informative representations through contrastive learning."""
 
-    def __init__(self, in_size, hidden_size, out_size, nb_lstm=1,  l_rate=1e-4, batch_size=1, dropout=0.25, bidir=False, device=DEVICE):
+    def __init__(self, in_size, hidden_size, out_size, nb_lstm=1,  l_rate=1e-4, batch_size=1, dropout=0.25, device=DEVICE):
         """Instantiate the lstm-based network, define the output, and declare the optimizer and loss."""
 
         super().__init__()
         # Define the lstm layers
-        self._lstm = nn.LSTM(in_size, hidden_size, num_layers=nb_lstm, batch_first=True, dropout=dropout if nb_lstm > 1 else 0, bidirectional=bidir, device=device)
+        self._lstm = nn.LSTM(in_size, hidden_size, num_layers=nb_lstm, batch_first=True, dropout=dropout if nb_lstm > 1 else 0, device=device)
 
         # Declare a feature layer
-        if bidir:
-            in_feats = 2 * hidden_size
-        else:
-            in_feats = hidden_size
+        #in_feats = hidden_size * WIN_SIZE * FACED['sample_freq']
+        in_feats = hidden_size
 
         self._fc1 = nn.Sequential(
+            #nn.Flatten(),
             nn.Dropout(dropout),
-            nn.Linear(in_feats, in_feats, device=device),
-            nn.ReLU(),
+            nn.Linear(in_feats, 20, device=device),
+            nn.ReLU()
         )
 
         self._fc2 = nn.Sequential(
             nn.Dropout(dropout),
-            nn.Linear(in_feats, in_feats, device=device),
-            nn.ReLU(),
+            nn.Linear(20, 20, device=device),
+            nn.ReLU()
         )
 
         # Declare the fully connected part of the head
         # The output activation is left out on purpose to allow for customization down the line
-        self._head = nn.Linear(in_feats * WIN_SIZE, out_size, device=device)
+        self._head = nn.Sequential(
+            nn.Dropout(dropout),
+            nn.Linear(20, out_size, device=device)
+        )
 
         # Declare loss and optimizer
         self._loss = nn.TripletMarginLoss()
-        self._optim = Adam(self.parameters(), lr=l_rate)
+        self._optim = AdamW(self.parameters(), lr=l_rate, amsgrad=True)
+        self._sched_lr = StepLR(self._optim, 50)
 
         self._device = device
         self._batch_size = batch_size
@@ -101,20 +74,17 @@ class ContrastiveLSTM(nn.Module):
     def forward(self, x, infer=False):
         """Propagate the given input through the network, and apply stratified normalization to the output."""
 
-        # Min-Max normalization
-        x = min_max_norm(x, self._batch_size)
         # Lstm
         out, _ = self._lstm(x)
         out = stratified_norm(out, self._batch_size)
 
         # Fc1
-        out = self._fc1(out)
+        out = self._fc1(out[:, -1])
         out = stratified_norm(out, self._batch_size)
 
         # Fc2
         out = self._fc2(out)
         out = stratified_norm(out, self._batch_size)
-        out = nn.Flatten()(out)
 
         if not infer:
             # Head
@@ -174,6 +144,7 @@ class ContrastiveLSTM(nn.Module):
 
             # Display some statistics
             logger.info(f'{epoch},{train_loss},{val_loss}')
+            self._sched_lr.step()
 
     def test_net(self, test_dl):
         # Load the best weights
@@ -210,7 +181,7 @@ class ContrastiveLSTM(nn.Module):
                     # TODO: Store the labels alongside the feature vectors
                     # Append the feature vectors to the dataset
                     if h5_ds is None:
-                        h5_ds = h5_file.create_dataset('default',
+                        h5_ds = h5_file.create_dataset('vectors',
                                                        data=vects,
                                                        shape=vects.shape,
                                                        maxshape=(None, *vects.shape[1:]),
@@ -226,32 +197,31 @@ class ContrastiveFC(nn.Module):
 
         # Build the body of the model
         in_feats = [in_size] + hid_sizes
-        self._lays = [nn.Sequential(
+
+        self._lays = nn.ModuleList([nn.Sequential(
             nn.Dropout(dropout),
             nn.Linear(in_f, out_f, device=DEVICE),
-            nn.LayerNorm(out_f, device=DEVICE),
             nn.LeakyReLU()
-        ) for in_f, out_f in zip(in_feats, hid_sizes)]
+        ) for in_f, out_f in zip(in_feats, hid_sizes)])
 
         # Build the head separately
         self._head = nn.Sequential(nn.Dropout(dropout),
                                    nn.Linear(hid_sizes[-1], out_size, device=DEVICE))
 
         # Declare the optimizer and loss
-        self._optim = Adam(self.parameters(), lr=l_rate)
+        self._optim = AdamW(self.parameters(), lr=l_rate, amsgrad=True)
         self._loss = nn.TripletMarginLoss()
+        #self._sched_lr = StepLR(self._optim, 10)
 
         # Keep track of the batch size
         self._batch_size = batch_size
 
     def forward(self, x, infer=False):
-        # Min_max normalization
-        out = min_max_norm(x, self._batch_size)
-
         # Propagate the input through the model's body
+        out = stratified_norm(x, self._batch_size)
         for lay in self._lays:
             out = lay(out)
-            #out = stratified_norm(out, self._batch_size)
+            out = stratified_norm(out, self._batch_size)
 
         if not infer:
             # Propagate through the head
@@ -260,6 +230,7 @@ class ContrastiveFC(nn.Module):
         return out
 
     def train_net(self, train_dl, val_dl, epochs, patience=20):
+        sched_lr = CosineAnnealingLR(self._optim, epochs, eta_min=1e-7)
         # Keep track of the minimum validation loss and patience
         min_loss = None
         curr_patience = patience
@@ -306,11 +277,12 @@ class ContrastiveFC(nn.Module):
             else:
                 curr_patience -= 1
 
-            if curr_patience <= 0:
-                break
+            #if curr_patience <= 0:
+            #    break
 
             # Display some statistics
             logger.info(f'{epoch},{train_loss},{val_loss}')
+            sched_lr.step()
 
     def test_net(self, test_dl):
         # Load the best weights
@@ -337,6 +309,7 @@ class ContrastiveFC(nn.Module):
 
         # Create a new hdf5 dataset to store the feature vectors
         h5_ds = None
+        label_ds = None
         with File(out_file, 'w') as h5_file:
             # Extract the feature vectors from the emotion dataset
             self.eval()
@@ -347,11 +320,20 @@ class ContrastiveFC(nn.Module):
                     # TODO: Store the labels alongside the feature vectors
                     # Append the feature vectors to the dataset
                     if h5_ds is None:
-                        h5_ds = h5_file.create_dataset('default',
+                        h5_ds = h5_file.create_dataset('vectors',
                                                        data=vects,
                                                        shape=vects.shape,
                                                        maxshape=(None, *vects.shape[1:]),
                                                        chunks=True)
+
+                        label_ds = h5_file.create_dataset('labels',
+                                                          data=labels,
+                                                          shape=labels.shape,
+                                                          maxshape=(None,),
+                                                          chunks=True)
                     else:
                         h5_ds.resize(h5_ds.shape[0] + vects.shape[0], axis=0)
                         h5_ds[-vects.shape[0]:] = vects
+
+                        label_ds.resize(label_ds.shape[0] + labels.shape[0], axis=0)
+                        label_ds[-labels.shape[0]:] = labels
