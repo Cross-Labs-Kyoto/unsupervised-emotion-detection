@@ -42,7 +42,7 @@ if __name__ == "__main__":
                                 out_size=30, l_rate=args.l_rate, batch_size=args.batch_size, dropout=args.dropout)
     else:
         logger.info("Loading model - FC")
-        model = ContrastiveFC(in_size=120, out_size=10, hid_sizes=[60, 60], l_rate=args.l_rate, batch_size=args.batch_size, dropout=args.dropout)
+        model = ContrastiveFC(in_size=120, out_size=30, hid_sizes=[100, 100, 50], l_rate=args.l_rate, batch_size=args.batch_size, dropout=args.dropout)
         WIN_SIZE = 1
         STRIDE = 1
 
@@ -97,7 +97,7 @@ if __name__ == "__main__":
                             batch_sampler=TripletSampler(len(val_sub), args.batch_size, n_samples), num_workers=4)
 
         # Train and validate
-        model.train_net(train_dl, val_dl, args.epochs, patience=10)
+        model.train_net(train_dl, val_dl, args.epochs, patience=15)
 
         logger.info("Test - Here we go!")
         # Build dataset and associated loader
