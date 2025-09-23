@@ -24,14 +24,16 @@ if __name__ == "__main__":
 
     # Instantiate UMAP object
     if args.tsne:
-        reducer = TSNE(metric='cosine')
+        reducer = TSNE()
     else:
-        reducer = umap.UMAP(metric='cosine')
+        reducer = umap.UMAP()
     
     with File(db_file, 'r') as h5_f:
         logger.info('Loading feature vectors')
         # Import feature vectors
-        h5_ds = h5_f['default']
+        h5_ds = h5_f['vectors']
+        h5_lab = h5_f['labels']
+        h5_clst = h5_f['clusters']
 
         if args.tsne:
             logger.info('Dimensionality reduction - T-SNE')
@@ -42,5 +44,5 @@ if __name__ == "__main__":
         fit_ds = reducer.fit_transform(h5_ds)
 
         logger.info('Plotting results')
-        plt.scatter(fit_ds[:, 0], fit_ds[:, 1])
+        plt.scatter(fit_ds[:, 0], fit_ds[:, 1], c=h5_lab, cmap='tab10')
         plt.savefig(args.plt_file.expanduser().resolve())
