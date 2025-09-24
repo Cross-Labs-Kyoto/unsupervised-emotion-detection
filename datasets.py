@@ -23,10 +23,7 @@ class DatasetType(IntEnum):
 
 def get_labels(n_subs=None, n_segs=None):
     labels = [0] * 3
-    for i in range(1,4):
-        labels.extend([i] * 3)
-    labels.extend([4] * 4)
-    for i in range(5,9):
+    for i in range(1,9):
         labels.extend([i] * 3)
 
     labels = np.array(labels, dtype=int)
@@ -88,7 +85,7 @@ def load_data(timeLen, timeStep, ds_type):
     for idx, path in enumerate(data_paths):
         with path.open('rb') as f:
             data_sub = pickle.load(f)
-            data[idx] = data_sub[:,:-2]  # The last two channels are ignored
+            data[idx] = np.delete(data_sub[:, :-2], 12, axis=0)  # Keep the dataset balanced by removing the additional 4 category, the last two channels are ignored since they are not EEG
 
     # data shape :(sub, vid, chn, fs * sec) -> fs * sec = nb_points
     logger.debug(f'data loaded: {data.shape}')
