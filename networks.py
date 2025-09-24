@@ -3,7 +3,7 @@ import numpy as np
 import torch
 from torch import nn
 from torch.optim import AdamW
-from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from sklearn.metrics import classification_report
 from h5py import File
 from loguru import logger
@@ -66,10 +66,8 @@ class ContrastiveLSTM(nn.Module):
         )
 
         # Declare loss and optimizer
-        #self._loss = nn.TripletMarginLoss()
-        self._loss = nn.TripletMarginWithDistanceLoss(distance_function=nn.CosineSimilarity(), margin=0.5)
+        self._loss = nn.TripletMarginLoss()
         self._optim = AdamW(self.parameters(), lr=l_rate, amsgrad=True)
-        self._sched_lr = StepLR(self._optim, 50)
 
         self._device = device
         self._batch_size = batch_size
@@ -89,14 +87,15 @@ class ContrastiveLSTM(nn.Module):
         out = self._fc2(out)
         out = stratified_norm(out, self._batch_size)
 
-        if not infer:
+        #if not infer:
             # Head
-            out = self._head(out)
+        out = self._head(out)
 
         return out
 
     def train_net(self, train_dl, val_dl, epochs, patience=20):
         # Keep track of the minimum validation loss and patience
+        sched_lr = CosineAnnealingLR(self._optim, epochs, eta_min=1e-7)
         min_loss = None
         curr_patience = patience
 
@@ -147,7 +146,7 @@ class ContrastiveLSTM(nn.Module):
 
             # Display some statistics
             logger.info(f'{epoch},{train_loss},{val_loss}')
-            self._sched_lr.step()
+            sched_lr.step()
 
     def test_net(self, test_dl):
         # Load the best weights
@@ -216,7 +215,6 @@ class ContrastiveFC(nn.Module):
         # Declare the optimizer and loss
         self._optim = AdamW(self.parameters(), lr=l_rate, amsgrad=True)
         self._loss = nn.TripletMarginLoss()
-        #self._loss = nn.TripletMarginWithDistanceLoss(distance_function=nn.CosineSimilarity(), margin=0.5)
 
         # Keep track of the batch size
         self._batch_size = batch_size
@@ -228,9 +226,9 @@ class ContrastiveFC(nn.Module):
             out = lay(out)
             out = stratified_norm(out, self._batch_size)
 
-        if not infer:
+        #if not infer:
             # Propagate through the head
-            out = self._head(out)
+        out = self._head(out)
 
         return out
 
