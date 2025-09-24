@@ -12,7 +12,7 @@ DEVICE = device('cuda') if cuda.is_available() else device('cpu')
 # Faced dataset metadata
 FACED = {'channels': 30,  # Two channels are ignored
          'duration': 30,
-         'nb_vids': 28,
+         'nb_vids': 27,  # One sub-set of category 4 removed to balance the dataset
          'sample_freq': 250}
 FACED['nb_points'] = FACED['sample_freq'] * FACED['duration']
 BANDS = ([4, 8], [8, 14], [14, 31], [31, 50])
