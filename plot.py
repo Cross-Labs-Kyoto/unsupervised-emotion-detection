@@ -36,13 +36,16 @@ if __name__ == "__main__":
         h5_lab = h5_f['labels']
         h5_clst = h5_f['clusters']
 
-        if args.tsne:
-            logger.info('Dimensionality reduction - T-SNE')
+        if h5_ds.shape[-1] > 2:
+            if args.tsne:
+                logger.info('Dimensionality reduction - T-SNE')
+            else:
+                logger.info('Dimensionality reduction - UMAP')
         else:
-            logger.info('Dimensionality reduction - UMAP')
+            fit_ds = h5_ds
 
-        # Fit and transform the feature vectors
-        fit_ds = reducer.fit_transform(h5_ds)
+            # Fit and transform the feature vectors
+            fit_ds = reducer.fit_transform(h5_ds)
 
         logger.info('Plotting results')
         if args.labels:
