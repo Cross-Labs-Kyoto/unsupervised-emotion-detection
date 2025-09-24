@@ -3,6 +3,7 @@ import torch
 from torch import nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import StepLR, CosineAnnealingLR
+from sklearn.metrics import classification_report
 from h5py import File
 from loguru import logger
 
@@ -342,3 +343,100 @@ class ContrastiveFC(nn.Module):
 
                         label_ds.resize(label_ds.shape[0] + labels.shape[0], axis=0)
                         label_ds[-labels.shape[0]:] = labels
+
+
+class ClassifierFC(nn.Module):
+    def __init__(self, in_size, out_size, hid_sizes, l_rate=1e-4):
+        in_feats = [in_size] + hid_sizes
+
+        self._lays = nn.ModuleList([nn.Sequential(nn.Linear(in_f, out_f, device=DEVICE),
+                                                  nn.ReLU(),
+                                                  nn.LayerNorm(out_f, device=DEVICE)
+                                                  ) for in_f, out_f in zip(in_feats, hid_sizes)])
+
+        self._head = nn.Sequential(nn.Linear(hid_sizes[-1], out_size, device=DEVICE), nn.Softmax(dim=1))
+
+        self._loss = nn.CrossEntropyLoss()
+        self._optim = nn.AdamW(self.parameters(), lr=l_rate, amsgrad=True)
+
+    def forward(self, x):
+        out = self._lays(x)
+        return self._head(out)
+
+    def train_net(self, train_dl, val_dl, epochs, patience=2):
+        min_loss = None
+        curr_patience = patience
+
+        for epoch in range(epochs):
+            # Train
+            self.train()
+            train_loss = 0
+            for batch, labels in train_dl:
+                batch = batch.to(DEVICE)
+                labels = labels.to(DEVICE)
+
+                preds = self(batch)
+
+                self._optim.zero_grad()
+                loss = self._loss(preds, labels)
+                loss.backward()
+                self._optim.step()
+
+                train_loss += loss.item()
+
+            train_loss /= len(train_dl)
+
+            # And validate
+            self.eval()
+            val_loss = 0
+            with torch.no_grad():
+                for batch, labels in val_dl:
+                    batch = batch.to(DEVICE)
+                    labels = labels.to(DEVICE)
+                    preds = self(batch)
+
+                    val_loss += self._loss(preds, labels).item()
+
+            # Check stop criterion
+            val_loss /= len(val_dl)
+
+            if min_loss is None or val_loss < min_loss:
+                min_loss = val_loss
+                curr_patience = patience
+
+                # Save weights to file
+                torch.save(self.state_dict(), WEIGHT_DIR.joinpath('classifier_fc.pth'))
+            else:
+                curr_patience -= 1
+
+            if curr_patience <= 0:
+                break
+
+            # Display some statistics
+            logger.info(f'{epoch},{train_loss},{val_loss}')
+
+    def test_net(self, dl):
+        # Load the best weights
+        if WEIGHT_DIR.joinpath('classifier_fc.pth').exists():
+            self.load_state_dict(torch.load(WEIGHT_DIR.joinpath('classifier_fc.pth'), weights_only=True))
+
+        # Compute the prediction for the whole dataset
+        self.eval()
+        all_preds = None
+        all_labels = None
+        with torch.no_grad():
+            for batch, labels in dl:
+                batch = batch.to(DEVICE)
+                preds = self(batch)
+
+                if all_preds is None:
+                    all_preds = preds
+                    all_labels = labels
+                else:
+                    all_preds = torch.cat([all_preds, preds], dim=0)
+                    all_labels = torch.cat([all_labels, labels], dim=0)
+
+        # Get a classification report
+        all_preds = all_preds.cpu().numpy()
+        all_labels = all_labels.cpu().numpy()
+        logger.info(classification_report(all_labels, all_preds))
