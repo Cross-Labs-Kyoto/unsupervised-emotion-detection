@@ -3,10 +3,11 @@ from sklearn.cluster import HDBSCAN, MiniBatchKMeans
 from sklearn.metrics import adjusted_mutual_info_score, adjusted_rand_score
 from h5py import File
 from loguru import logger
+from settings import ROOT_DIR
 
 if __name__ == "__main__":
     # TODO: Declare command line interface to specify input/output files, and type of clustering to use (k-means or hdbscan)
-    with File('test_de.h5', 'a') as db_file:
+    with File(ROOT_DIR.joinpath('Results', 'test_de.h5'), 'a') as db_file:
         # Import feature vectors
         feat_vecs = db_file['vectors']
 
