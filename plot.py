@@ -15,6 +15,7 @@ if __name__ == "__main__":
     parser.add_argument('-o', '--output', dest='plt_file', type=Path, required=True,
                         help='The relative path in which to save the plot.')
     parser.add_argument('--tsne', dest='tsne', action='store_true', help='A flag indicating to use T-Sne for dimensionality reduction, instead of UMAP.')
+    parser.add_argument('--labels', dest='labels', action='store_true', help='A flag indicating whether to use the cluster labels for colors, or the ground truth.')
 
     args = parser.parse_args()
 
@@ -44,5 +45,8 @@ if __name__ == "__main__":
         fit_ds = reducer.fit_transform(h5_ds)
 
         logger.info('Plotting results')
-        plt.scatter(fit_ds[:, 0], fit_ds[:, 1], c=h5_lab, cmap='tab10')
+        if args.labels:
+            plt.scatter(fit_ds[:, 0], fit_ds[:, 1], c=h5_clst, cmap='tab10')
+        else:
+            plt.scatter(fit_ds[:, 0], fit_ds[:, 1], c=h5_lab, cmap='tab10')
         plt.savefig(args.plt_file.expanduser().resolve())
