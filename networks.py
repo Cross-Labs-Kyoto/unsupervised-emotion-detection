@@ -214,8 +214,8 @@ class ContrastiveFC(nn.Module):
 
         # Declare the optimizer and loss
         self._optim = AdamW(self.parameters(), lr=l_rate, amsgrad=True)
-        #self._loss = nn.TripletMarginLoss()
-        self._loss = nn.TripletMarginWithDistanceLoss(distance_function=nn.CosineSimilarity(), margin=0.5)
+        self._loss = nn.TripletMarginLoss()
+        #self._loss = nn.TripletMarginWithDistanceLoss(distance_function=nn.CosineSimilarity(), margin=0.5)
 
         # Keep track of the batch size
         self._batch_size = batch_size
@@ -281,8 +281,8 @@ class ContrastiveFC(nn.Module):
             else:
                 curr_patience -= 1
 
-            #if curr_patience <= 0:
-            #    break
+            if curr_patience <= 0:
+                break
 
             # Display some statistics
             logger.info(f'{epoch},{train_loss},{val_loss}')
