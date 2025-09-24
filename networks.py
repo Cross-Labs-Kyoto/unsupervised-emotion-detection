@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import numpy as np
 import torch
 from torch import nn
 from torch.optim import AdamW
@@ -347,6 +348,7 @@ class ContrastiveFC(nn.Module):
 
 class ClassifierFC(nn.Module):
     def __init__(self, in_size, out_size, hid_sizes, l_rate=1e-4):
+        super().__init__()
         in_feats = [in_size] + hid_sizes
 
         self._lays = nn.ModuleList([nn.Sequential(nn.Linear(in_f, out_f, device=DEVICE),
@@ -357,10 +359,12 @@ class ClassifierFC(nn.Module):
         self._head = nn.Sequential(nn.Linear(hid_sizes[-1], out_size, device=DEVICE), nn.Softmax(dim=1))
 
         self._loss = nn.CrossEntropyLoss()
-        self._optim = nn.AdamW(self.parameters(), lr=l_rate, amsgrad=True)
+        self._optim = AdamW(self.parameters(), lr=l_rate, amsgrad=True)
 
     def forward(self, x):
-        out = self._lays(x)
+        out = x
+        for lay in self._lays:
+            out = lay(out)
         return self._head(out)
 
     def train_net(self, train_dl, val_dl, epochs, patience=2):
@@ -438,5 +442,10 @@ class ClassifierFC(nn.Module):
 
         # Get a classification report
         all_preds = all_preds.cpu().numpy()
+        for idx, pred in enumerate(all_preds):
+            idx_max = np.argmax(pred)
+            all_preds[idx] = np.zeros_like(pred)
+            all_preds[idx][idx_max] = 1
         all_labels = all_labels.cpu().numpy()
-        logger.info(classification_report(all_labels, all_preds))
+
+        print(classification_report(all_labels, all_preds))
