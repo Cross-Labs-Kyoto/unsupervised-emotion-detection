@@ -38,11 +38,11 @@ if __name__ == "__main__":
     # Instantiate model
     if args.lstm:
         logger.info("Loading model - LSTM")
-        model = ContrastiveLSTM(in_size=FACED['channels'] * len(BANDS), hidden_size=60,
-                                out_size=30, l_rate=args.l_rate, batch_size=args.batch_size, dropout=args.dropout)
+        model = ContrastiveLSTM(in_size=FACED['channels'] * len(BANDS), hidden_size=5,
+                                out_size=2, l_rate=args.l_rate, batch_size=args.batch_size, dropout=args.dropout)
     else:
         logger.info("Loading model - FC")
-        model = ContrastiveFC(in_size=120, out_size=3, hid_sizes=[5, 5, 5], l_rate=args.l_rate, batch_size=args.batch_size, dropout=args.dropout)
+        model = ContrastiveFC(in_size=120, out_size=3, hid_sizes=[5, 5], l_rate=args.l_rate, batch_size=args.batch_size, dropout=args.dropout)
         WIN_SIZE = 1
         STRIDE = 1
         logger.info(model)
