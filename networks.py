@@ -169,6 +169,8 @@ class ContrastiveLSTM(nn.Module):
     def inference(self, dl, out_file):
         if out_file is None:
             out_file = ROOT_DIR.joinpath('Results', 'feature_vectors.h5')
+        else:
+            out_file = ROOT_DIR.joinpath('Results', out_file)
 
         # Create a new hdf5 dataset to store the feature vectors
         h5_ds = None
@@ -307,6 +309,8 @@ class ContrastiveFC(nn.Module):
     def inference(self, dl, out_file):
         if out_file is None:
             out_file = ROOT_DIR.joinpath('Results', 'feature_vectors.h5')
+        else:
+            out_file = ROOT_DIR.joinpath('Results', out_file)
 
         # Create a new hdf5 dataset to store the feature vectors
         h5_ds = None
