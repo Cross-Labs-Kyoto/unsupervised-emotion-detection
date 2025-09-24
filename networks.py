@@ -65,7 +65,7 @@ class ContrastiveLSTM(nn.Module):
 
         # Declare loss and optimizer
         #self._loss = nn.TripletMarginLoss()
-        self._loss = nn.TripletMarginWithDistanceLoss(distance_function=nn.CosineSimilarity())
+        self._loss = nn.TripletMarginWithDistanceLoss(distance_function=nn.CosineSimilarity(), margin=0.5)
         self._optim = AdamW(self.parameters(), lr=l_rate, amsgrad=True)
         self._sched_lr = StepLR(self._optim, 50)
 
@@ -212,7 +212,7 @@ class ContrastiveFC(nn.Module):
         # Declare the optimizer and loss
         self._optim = AdamW(self.parameters(), lr=l_rate, amsgrad=True)
         #self._loss = nn.TripletMarginLoss()
-        self._loss = nn.TripletMarginWithDistanceLoss(distance_function=nn.CosineSimilarity())
+        self._loss = nn.TripletMarginWithDistanceLoss(distance_function=nn.CosineSimilarity(), margin=0.5)
 
         # Keep track of the batch size
         self._batch_size = batch_size
