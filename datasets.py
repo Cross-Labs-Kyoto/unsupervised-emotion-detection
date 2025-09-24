@@ -237,3 +237,15 @@ class TripletSampler(Sampler[list[int]]):
             batch = torch.LongTensor(np.concatenate((ind_a, ind_p, ind_n)))
 
             yield batch
+
+
+class ClassificationDataset(Dataset):
+    def __init__(self, data, labels):
+        self._data = data
+        self._labels = labels
+
+    def __len__(self):
+        return self._data.shape[0]
+
+    def __getitem__(self, idx):
+        return self._data[idx], self._labels[idx]
