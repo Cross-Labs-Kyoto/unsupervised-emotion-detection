@@ -2,10 +2,12 @@
 from argparse import ArgumentParser
 from pathlib import Path
 from h5py import File
+import numpy as np
 from torch.utils.data import DataLoader, random_split
+from sklearn.preprocessing import OneHotEncoder
 from loguru import logger
 from datasets import ClassificationDataset
-from network import ClassifierFC
+from networks import ClassifierFC
 
 
 BATCH_SIZE = 64
@@ -24,19 +26,23 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     
-    # TODO: Build the classifier
+    # Build the classifier
     logger.info('Creating model')
-    classifier = ClassifierFC(in_size=, out_size=9, hid_sizes=[30, 30], l_rate=args.l_rate)
+    classifier = ClassifierFC(in_size=1000, out_size=9, hid_sizes=[30, 30], l_rate=args.l_rate)
     logger.debug(classifier)
 
     # Load the dataset from file
     logger.info('Create dataset')
     with File(args.db_file, 'r') as db_file:
         vects = db_file['vectors'][:]
-        labels = db_file['labels'][:]
+        labels = db_file['labels'][:].reshape(-1, 1)
+
+    # One-hot encode the labels
+    encoder = OneHotEncoder(dtype=labels.dtype)
+    onehot_labels = encoder.fit_transform(labels).toarray().astype(np.float64)
 
     # Build the dataset and dataloader
-    ds = ClassificationDataset(vects, labels)
+    ds = ClassificationDataset(vects, onehot_labels)
     train, test_ds = random_split(ds, lengths=[0.8, 0.2])
     train_ds, val_ds = random_split(train, lengths=[0.9, 0.1])
 
