@@ -34,7 +34,7 @@ def stratified_norm(x, batch_size):
 class ContrastiveLSTM(nn.Module):
     """Define a lstm-based network that learns to generate informative representations through contrastive learning."""
 
-    def __init__(self, in_size, hid_lstm, hid_fc, out_size, nb_lstm=1,  l_rate=1e-4, batch_size=1, dropout=0.25, device=DEVICE):
+    def __init__(self, in_size, hid_lstm, hid_fc, out_size, nb_lstm=1,  l_rate=1e-4, batch_size=1, dropout=0.25, device=DEVICE, weight_file=WEIGHT_DIR.joinpath('contrastive_lstm.pth')):
         """Instantiate the lstm-based network, define the output, and declare the optimizer and loss."""
 
         super().__init__()
@@ -66,6 +66,7 @@ class ContrastiveLSTM(nn.Module):
 
         self._device = device
         self._batch_size = batch_size
+        self._weight_file = weight_file
 
     def forward(self, x, infer=False):
         """Propagate the given input through the network, and apply stratified normalization to the output."""
@@ -130,7 +131,7 @@ class ContrastiveLSTM(nn.Module):
                 curr_patience = patience
 
                 # Save weights to file
-                torch.save(self.state_dict(), WEIGHT_DIR.joinpath('contrastive_lstm.pth'))
+                torch.save(self.state_dict(), self._weight_file)
             else:
                 curr_patience -= 1
 
@@ -143,8 +144,8 @@ class ContrastiveLSTM(nn.Module):
 
     def test_net(self, test_dl):
         # Load the best weights
-        if WEIGHT_DIR.joinpath('contrastive_lstm.pth').exists():
-            self.load_state_dict(torch.load(WEIGHT_DIR.joinpath('contrastive_lstm.pth'), weights_only=True))
+        if self._weight_file.exists():
+            self.load_state_dict(torch.load(self._weight_file, weights_only=True))
 
         # Test
         self.eval()
