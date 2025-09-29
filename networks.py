@@ -34,35 +34,30 @@ def stratified_norm(x, batch_size):
 class ContrastiveLSTM(nn.Module):
     """Define a lstm-based network that learns to generate informative representations through contrastive learning."""
 
-    def __init__(self, in_size, hidden_size, out_size, nb_lstm=1,  l_rate=1e-4, batch_size=1, dropout=0.25, device=DEVICE):
+    def __init__(self, in_size, hid_lstm, hid_fc, out_size, nb_lstm=1,  l_rate=1e-4, batch_size=1, dropout=0.25, device=DEVICE):
         """Instantiate the lstm-based network, define the output, and declare the optimizer and loss."""
 
         super().__init__()
         # Define the lstm layers
-        self._lstm = nn.LSTM(in_size, hidden_size, num_layers=nb_lstm, batch_first=True, dropout=dropout if nb_lstm > 1 else 0, device=device)
+        self._lstm = nn.LSTM(in_size, hid_lstm, num_layers=nb_lstm, batch_first=True, dropout=dropout if nb_lstm > 1 else 0, device=device)
 
         # Declare a feature layer
         #in_feats = hidden_size * WIN_SIZE * FACED['sample_freq']
-        in_feats = hidden_size
+        in_feats = hid_lstm
 
-        self._fc1 = nn.Sequential(
-            #nn.Flatten(),
-            nn.Dropout(dropout),
-            nn.Linear(in_feats, 20, device=device),
-            nn.ReLU()
-        )
-
-        self._fc2 = nn.Sequential(
-            nn.Dropout(dropout),
-            nn.Linear(20, 20, device=device),
-            nn.ReLU()
-        )
+        in_dim = [in_feats] + hid_fc
+        self._lays = nn.ModuleList([
+            nn.Sequential(
+                nn.Dropout(dropout),
+                nn.Linear(in_f, out_f, device=device),
+                nn.ReLU()
+                ) for in_f, out_f in zip(in_dim, hid_fc)])
 
         # Declare the fully connected part of the head
         # The output activation is left out on purpose to allow for customization down the line
         self._head = nn.Sequential(
             nn.Dropout(dropout),
-            nn.Linear(20, out_size, device=device)
+            nn.Linear(hid_fc[-1], out_size, device=device)
         )
 
         # Declare loss and optimizer
@@ -79,13 +74,11 @@ class ContrastiveLSTM(nn.Module):
         out, _ = self._lstm(x)
         out = stratified_norm(out, self._batch_size)
 
-        # Fc1
-        out = self._fc1(out[:, -1])
-        out = stratified_norm(out, self._batch_size)
-
-        # Fc2
-        out = self._fc2(out)
-        out = stratified_norm(out, self._batch_size)
+        # Propagate through the common dense layers
+        out = out[:, -1]
+        for lay in self._lays:
+            out = lay(out)
+            out = stratified_norm(out, self._batch_size)
 
         #if not infer:
             # Head
