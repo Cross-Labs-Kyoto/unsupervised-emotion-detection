@@ -20,7 +20,7 @@ if __name__ == "__main__":
     hid_lstms = [5, 10, 20, 40, 60]
     hid_fcs = [[20, 20], [30, 30], [40, 40], [50, 50], [100, 100]]
     out_sizes = [2, 3, 5, 10]
-    l_rates = [1e-3, 5e-4, 1e-4]
+    l_rates = [5e-4, 1e-4]
     psds = [False, True]
 
     for psd in psds:
