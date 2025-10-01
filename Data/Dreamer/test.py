@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import numpy as np
+
 from scipy.io import loadmat
 from pywt import wavedec
 from matplotlib import pyplot as plt
@@ -13,12 +14,16 @@ nb_subs = dreamer['noOfSubjects'].item()
 nb_vids = dreamer['noOfVideoSequences'].item()
 sample_rate = dreamer['ECG_SamplingRate']
 
+kernel = 5 * sample_rate
+stride = 2 * sample_rate
+nb_segments = int((MIN_NB_SAMPLES - kernel) / stride + 1)
+nb_chans = 2
 
 # See here for infor on structures in Numpy: https://numpy.org/doc/stable/reference/routines.rec.html
 dreamer_data = dreamer['Data'].item()
 # 'Age', 'Gender', 'EEG', 'ECG', 'ScoreValence', 'ScoreArousal', 'ScoreDominance' x 23 participants
 
-data = np.zeros((nb_subs, nb_vids, 2, MIN_NB_SAMPLES))
+data = np.zeros((nb_subs, nb_vids, nb_chans, MIN_NB_SAMPLES))
 labels = np.zeros((nb_subs, nb_vids, 3))
 
 for part_id, part in enumerate(dreamer_data):
@@ -33,10 +38,21 @@ for part_id, part in enumerate(dreamer_data):
     stimuli = ecg['stimuli'].item()
     data[part_id] = np.stack([s[0:MIN_NB_SAMPLES].transpose() for s in stimuli], axis=0)
     
-print(labels.shape, data.shape)
-ca, *cds = wavedec(data[0, 0, 0], 'coif17', level=5)
-plt.plot(ca, color='b')
-plt.plot(data[0, 0, 0], color='r')
-plt.savefig('test.png')
 # data shape: (sub, vid, chan, nb_points)
 # label shape: (sub, vid, 3) where 3 is for Valence, arousal, dominance
+print(labels.shape, data.shape)
+
+features = np.zeros((nb_subs, nb_vids, nb_chans, 248))
+for sub_id in range(nb_subs):
+    for vid_id in range(nb_vids):
+        for chan_id in range(2):
+            for idx in range(nb_segments):
+                ca, *cds = wavedec(data[sub_id, vid_id, chan_id, idx*stride:(idx*stride)+kernel], 'coif17', level=3)
+                features[sub_id, vid_id, chan_id] = ca
+
+features = features.reshape(nb_subs, -1, nb_chans * 248)
+d_min = features.min(axis=1, keepdims=True)
+d_max = features.max(axis=1, keepdims=True)
+features = (features - d_min) / (d_max - d_min)
+
+print(features.shape, features.min(), features.max())
