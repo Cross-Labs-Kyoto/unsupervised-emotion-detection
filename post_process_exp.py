@@ -77,7 +77,7 @@ if __name__ == "__main__":
 
                         # Instantiate the classifier
                         # TODO: in_size should not be hardcoded (in_size=out_size)
-                        classifier = ClassifierFC(in_size=3, out_size=9, hid_sizes=[10, 10], l_rate=1e-3)
+                        classifier = ClassifierFC(in_size=3, out_size=9, hid_sizes=[5], l_rate=1e-3)
 
                         # Create classification database
                         with File(feat_file, 'r') as db_file:
