@@ -67,13 +67,11 @@ def load_data(timeLen, timeStep, ds_type):
     # Get the time series from file
     if ds_type == DatasetType.CLISA:
         data_path = DATA_DIR.joinpath('FACED', 'Clisa_data')
-        logger.debug(f'Loading data from: {data_path}')
     elif ds_type == DatasetType.DE:
         data_path = DATA_DIR.joinpath('FACED', 'EEG_Features', 'DE')
-        logger.debug(f'Loading data from: {data_path}')
     elif ds_type == DatasetType.PSD:
         data_path = DATA_DIR.joinpath('FACED', 'EEG_Features', 'PSD')
-        logger.debug(f'Loading data from: {data_path}')
+    logger.debug(f'Loading data from: {data_path}')
     data_paths = [itm for itm in sorted(data_path.iterdir()) if itm.exists() and not itm.is_dir()]
 
     if ds_type == DatasetType.CLISA:
