@@ -169,6 +169,7 @@ class ContrastiveLSTM(nn.Module):
 
         # Create a new hdf5 dataset to store the feature vectors
         h5_ds = None
+        label_ds = None
         with File(out_file, 'w') as h5_file:
             # Extract the feature vectors from the emotion dataset
             self.eval()
@@ -184,9 +185,18 @@ class ContrastiveLSTM(nn.Module):
                                                        shape=vects.shape,
                                                        maxshape=(None, *vects.shape[1:]),
                                                        chunks=True)
+
+                        label_ds = h5_file.create_dataset('labels',
+                                                          data=labels,
+                                                          shape=labels.shape,
+                                                          maxshape=(None,),
+                                                          chunks=True)
                     else:
                         h5_ds.resize(h5_ds.shape[0] + vects.shape[0], axis=0)
                         h5_ds[-vects.shape[0]:] = vects
+
+                        label_ds.resize(label_ds.shape[0] + labels.shape[0], axis=0)
+                        label_ds[-labels.shape[0]:] = labels
 
 
 class ContrastiveFC(nn.Module):
