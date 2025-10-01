@@ -97,7 +97,7 @@ if __name__ == "__main__":
                         val_dl = DataLoader(val_ds, batch_size=batch_size, num_workers=4)
 
                         # Train
-                        classifier.train_net(train_dl, val_dl, epochs, patience=15)
+                        classifier.train_net(train_dl, val_dl, 500, patience=50)
 
                         # Test
                         test_dl = DataLoader(test_ds, batch_size=batch_size, num_workers=4)
