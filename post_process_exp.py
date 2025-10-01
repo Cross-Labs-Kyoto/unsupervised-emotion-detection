@@ -48,9 +48,8 @@ if __name__ == "__main__":
                         if not weight_path.exists() or not weight_path.is_file():  # Just ignore non-existant weight files
                             logger.info(f"Weight file does not exist, moving on: {weight_path}")
                             continue
-                        # TODO: out_size should not be hardcoded (out_size=out_size)
                         model = ContrastiveLSTM(in_size=FACED['channels'] * len(BANDS), hid_lstm=hid_lstm, hid_fc=hid_fc,
-                                                out_size=3, l_rate=l_rate, batch_size=batch_size, dropout=dropout, weight_file=WEIGHT_DIR.joinpath(weight_name))
+                                                out_size=out_size, l_rate=l_rate, batch_size=batch_size, dropout=dropout, weight_file=WEIGHT_DIR.joinpath(weight_name))
 
                         # Load the weights
                         model.load_state_dict(torch.load(weight_path, weights_only=True))
@@ -76,8 +75,7 @@ if __name__ == "__main__":
                         ####################
 
                         # Instantiate the classifier
-                        # TODO: in_size should not be hardcoded (in_size=out_size)
-                        classifier = ClassifierFC(in_size=3, out_size=9, hid_sizes=[5], l_rate=1e-3)
+                        classifier = ClassifierFC(in_size=out_size, out_size=9, hid_sizes=[5], l_rate=1e-3)
 
                         # Create classification database
                         with File(feat_file, 'r') as db_file:
