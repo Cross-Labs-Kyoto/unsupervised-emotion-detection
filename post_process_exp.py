@@ -145,13 +145,17 @@ if __name__ == "__main__":
                             if fit_ds.shape[-1] == 2:
                                 plt.scatter(fit_ds[:, 0], fit_ds[:, 1], c=clst_labels, cmap='tab10')
                                 plt.savefig(ROOT_DIR.joinpath('Results', f'features_{psd}_{l_rate}_{out_size}_{hid_fc}_{hid_lstm}_clusters.png'))
+                                plt.clf()
 
                                 plt.scatter(fit_ds[:, 0], fit_ds[:, 1], c=gt_labels, cmap='tab10')
                                 plt.savefig(ROOT_DIR.joinpath('Results', f'features_{psd}_{l_rate}_{out_size}_{hid_fc}_{hid_lstm}_ground_truth.png'))
+                                plt.clf()
                             else:
                                 plt.scatter(fit_ds[:, 0], fit_ds[:, 1], fit_ds[:, 2], c=clst_labels, cmap='tab10')
                                 plt.savefig(ROOT_DIR.joinpath('Results', f'features_{psd}_{l_rate}_{out_size}_{hid_fc}_{hid_lstm}_clusters.png'))
+                                plt.clf()
 
                                 plt.scatter(fit_ds[:, 0], fit_ds[:, 1], fit_ds[:, 2], c=gt_labels, cmap='tab10')
                                 plt.savefig(ROOT_DIR.joinpath('Results', f'features_{psd}_{l_rate}_{out_size}_{hid_fc}_{hid_lstm}_ground_truth.png'))
+                                plt.clf()
 
