@@ -32,7 +32,7 @@ if __name__ == "__main__":
                         logger.info(f"Loading model - psd: {psd} l_rate: {l_rate} out_size: {out_size} hid_fc: {hid_fc} hid_lstm: {hid_lstm}")
                         weight_name = f'contrastive_lstm_{psd}_{l_rate}_{out_size}_{";".join(map(str, hid_fc))}_{hid_lstm}.pth'
                         model = ContrastiveLSTM(in_size=FACED['channels'] * len(BANDS), hid_lstm=hid_lstm, hid_fc=hid_fc,
-                                                out_size=3, l_rate=l_rate, batch_size=batch_size, dropout=dropout, weight_file=WEIGHT_DIR.joinpath(weight_name))
+                                                out_size=out_size, l_rate=l_rate, batch_size=batch_size, dropout=dropout, weight_file=WEIGHT_DIR.joinpath(weight_name))
 
                         # Load data
                         logger.info("Loading data")
