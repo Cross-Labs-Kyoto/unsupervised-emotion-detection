@@ -4,7 +4,7 @@ import torch
 from torch import nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from sklearn.metrics import classification_report
+from sklearn.metrics import classification_report, accuracy_score
 from h5py import File
 from loguru import logger
 
@@ -419,7 +419,7 @@ class ClassifierFC(nn.Module):
                 break
 
             # Display some statistics
-            logger.info(f'{epoch},{train_loss},{val_loss}')
+            #logger.info(f'{epoch},{train_loss},{val_loss}')
 
     def test_net(self, dl):
         # Load the best weights
@@ -450,4 +450,5 @@ class ClassifierFC(nn.Module):
             all_preds[idx][idx_max] = 1
         all_labels = all_labels.cpu().numpy()
 
-        print(classification_report(all_labels, all_preds))
+        #print(classification_report(all_labels, all_preds))
+        logger.info(f'Classification accuracy: {accuracy_score(all_labels, all_preds)}')
