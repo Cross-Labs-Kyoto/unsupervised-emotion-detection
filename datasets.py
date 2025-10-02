@@ -5,6 +5,8 @@ from collections import defaultdict
 from enum import IntEnum, auto
 import warnings
 import numpy as np
+from scipy.io import loadmat
+from pywt import wavedec
 import torch
 from torch.utils.data import Dataset, Sampler
 
@@ -41,7 +43,7 @@ def get_labels(n_subs=None, n_segs=None):
     return labels
 
 
-def load_data(timeLen, timeStep, ds_type):
+def load_data_eeg(timeLen, timeStep, ds_type):
     """
     Loads the FACED - Clisa data from files, builds the associated list of
     labels, and compute various meta-data about the dataset.
@@ -110,6 +112,67 @@ def load_data(timeLen, timeStep, ds_type):
     logger.debug(f'data reshaped: {data.shape}')
 
     return data, n_samples, n_segs, n_subs
+
+
+def load_data_ecg(timeLen, timeStep): 
+    min_nb_samples = 17152  # Gathered by analyzing the dataset. Corresponds to 67 seconds of video
+
+    mat = loadmat(DATA_DIR.joinpath('Dreamer', 'DREAMER.mat'), squeeze_me=True)  # squeeze_me=True required otherwise, you have to play with a lot of [0, 0]
+    dreamer = mat['DREAMER']
+    #print(dreamer.dtype)
+    nb_subs = dreamer['noOfSubjects'].item()
+    nb_vids = dreamer['noOfVideoSequences'].item()
+    sample_rate = dreamer['ECG_SamplingRate']
+
+    kernel = timeLen * sample_rate
+    stride = timeStep * sample_rate
+    nb_segments = int((min_nb_samples - kernel) / stride + 1)
+    nb_chans = 2
+
+    # See here for infor on structures in Numpy: https://numpy.org/doc/stable/reference/routines.rec.html
+    dreamer_data = dreamer['Data'].item()
+    # 'Age', 'Gender', 'EEG', 'ECG', 'ScoreValence', 'ScoreArousal', 'ScoreDominance' x 23 participants
+
+    data = np.zeros((nb_subs, nb_vids, nb_chans, min_nb_samples))
+    emo_labels = np.zeros((nb_subs, nb_vids, 3))
+    for part_id, part in enumerate(dreamer_data):
+        #print(part.dtype)
+        score_vals = part['ScoreValence'].item()
+        score_arou = part['ScoreArousal'].item()
+        score_dom = part['ScoreDominance'].item()
+        emo_labels[part_id] = np.stack([score_vals, score_arou, score_dom], axis=-1)
+
+        ecg = part['ECG'].item()
+        baseline = ecg['baseline'].item()
+        stimuli = ecg['stimuli'].item()
+        data[part_id] = np.stack([s[0:min_nb_samples].transpose() for s in stimuli], axis=0)
+
+    emo_labels = emo_labels.reshape(-1, 3) 
+    # data shape: (sub, vid, chan, nb_points)
+    # label shape: (sub, vid, 3) where 3 is for Valence, arousal, dominance
+
+    features = np.zeros((nb_subs, nb_vids, nb_chans, nb_segments, 248))  # 248 is the size of the approximated coefficients at level 3
+    vid_labels = np.zeros((nb_subs, nb_vids, nb_segments))  # The video labels and emotion labels do not map to each other 1:1. We are assuming that the video elicit the emotion it's supposed to.
+    for sub_id in range(nb_subs):
+        for vid_id in range(nb_vids):
+            vid_labels[sub_id, vid_id] = [vid_id] * nb_segments
+            for chan_id in range(2):
+                for idx in range(nb_segments):
+                    ca, *cds = wavedec(data[sub_id, vid_id, chan_id, idx*stride:(idx*stride)+kernel], 'coif17', level=3)
+                    features[sub_id, vid_id, chan_id, idx] = ca
+
+    vid_labels = vid_labels.reshape(-1, nb_segments)
+
+    features = features.reshape(nb_subs, -1, nb_chans * 248)
+    d_min = features.min(axis=1, keepdims=True)
+    d_max = features.max(axis=1, keepdims=True)
+    features = (features - d_min) / (d_max - d_min)
+    features = features.reshape(-1, nb_chans * 248)
+
+
+    nb_samples = np.ones(nb_vids) * nb_segments
+
+    return features, vid_labels, nb_samples, nb_segments, nb_subs
 
 
 class ClisaDataset(Dataset):
