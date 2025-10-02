@@ -163,7 +163,8 @@ def load_data_ecg(timeLen, timeStep):
 
     vid_labels = vid_labels.reshape(-1, nb_segments)
 
-    features = features.reshape(nb_subs, -1, nb_chans * 248)
+    # feature shape: nb_subs, nb_vids * nb_segments, nb_chans * 248
+    features = features.transpose((0, 1, 3, 2, 4)).reshape(nb_subs, -1, nb_chans * 248)
     d_min = features.min(axis=1, keepdims=True)
     d_max = features.max(axis=1, keepdims=True)
     features = (features - d_min) / (d_max - d_min)
@@ -172,7 +173,7 @@ def load_data_ecg(timeLen, timeStep):
 
     nb_samples = np.ones(nb_vids) * nb_segments
 
-    return features, vid_labels, nb_samples, nb_segments, nb_subs
+    return features, vid_labels.flatten(), nb_samples, nb_segments, nb_subs
 
 
 class ClisaDataset(Dataset):
