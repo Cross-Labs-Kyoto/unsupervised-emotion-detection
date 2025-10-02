@@ -308,3 +308,15 @@ class ClassificationDataset(Dataset):
 
     def __getitem__(self, idx):
         return self._data[idx], self._labels[idx]
+
+
+class DreamerDataset(Dataset):
+    def __init__(self, data, labels):
+        self._data = data.transpose()  # nb_features, tot_nb_segments
+        self._labels = labels
+
+    def __len__(self):
+        return self._data.shape[-1]
+
+    def __getitem__(self, idx):
+        return torch.FloatTensor(self._data[:, idx]), self.labels[idx]
