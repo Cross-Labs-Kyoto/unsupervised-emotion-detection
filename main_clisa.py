@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 import numpy as np
 from loguru import logger
 
-from datasets import load_data, ClisaDataset, TripletSampler, DatasetType
+from datasets import load_data_eeg, ClisaDataset, TripletSampler, DatasetType
 from networks import ContrastiveLSTM
 from settings import FACED, WIN_SIZE, STRIDE
 
@@ -45,7 +45,7 @@ if __name__ == "__main__":
 
     # Load data
     logger.info("Loading data")
-    data, n_samples, n_segs, n_subs = load_data(WIN_SIZE, STRIDE, DatasetType.CLISA)
+    data, n_samples, n_segs, n_subs = load_data_eeg(WIN_SIZE, STRIDE, DatasetType.CLISA)
 
 
     if args.infer:
