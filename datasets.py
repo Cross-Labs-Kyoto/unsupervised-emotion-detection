@@ -176,6 +176,36 @@ def load_data_ecg(timeLen, timeStep):
     return features, vid_labels.flatten(), nb_samples, nb_segments, nb_subs
 
 
+def load_data_egg():
+    db = np.loadtxt(DATA_DIR.joinpath('DeepBodyFeelings', 'Emo_pill_dati_stomachonly&EGG.csv'), delimiter=';', skiprows=1)
+    db = db[::8]  # same measurements are repeated over all items
+    db = np.delete(db, (1, 2, 4, 5), axis=1)  # sub, emo, egg
+
+    _, idxs = np.unique(db[:,0], return_index=True)
+    subs = np.split(db, idxs[1:])
+    nan_cnt = 0
+    data = []
+    labels = []
+    for sub in subs:
+        mask = np.logical_not(np.isnan(sub[:, -1]))
+        sub_data = sub[mask, -1].reshape(-1, 1)
+        if sub_data.shape[0] == 0:
+            continue
+
+        min_d = sub_data.min()
+        max_d = sub_data.max()
+        if max_d == min_d:
+            data.append(sub_data / max_d)
+        else:
+            data.append((sub_data - min_d) / (max_d - min_d))
+        labels.append(sub[mask, 1].reshape(-1, 1))
+
+    data = np.concatenate(data, axis=0)
+    labels = np.concatenate(labels, axis=0)
+
+    return data, labels
+
+
 class ClisaDataset(Dataset):
     def __init__(self, data, timeLen, timeStep, n_subs, n_segs):
         self.data = data.transpose() # nb_channels, tot_nb_points (nb_participants * nb_vids * nb_points)
