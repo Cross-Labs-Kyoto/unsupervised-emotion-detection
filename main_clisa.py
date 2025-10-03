@@ -8,7 +8,7 @@ from loguru import logger
 
 from datasets import load_data_eeg, ClisaDataset, TripletSampler, DatasetType
 from networks import ContrastiveLSTM
-from settings import FACED, WIN_SIZE, STRIDE
+from settings import FACED, WIN_SIZE, STRIDE, WEIGHT_DIR
 
 
 if __name__ == "__main__":
@@ -16,7 +16,7 @@ if __name__ == "__main__":
     parser = ArgumentParser()
     parser.add_argument('-e', '--epochs', dest='epochs', type=int, default=100,
                         help='The number of epochs to train/validate the network for.')
-    parser.add_argument('-w', '--weights', dest='weights_file', type=Path, default=None,
+    parser.add_argument('-w', '--weights', dest='weights_file', type=Path, default=WEIGHT_DIR.joinpath('contrastive_lstm_clisa.pth'),
                         help='The relative path to the pre-trained weights.')
     parser.add_argument('-b', '--batch_size', dest='batch_size', type=int, default=32,
                         help='The size of a batch to be fed to the network for training/inference.')
@@ -33,15 +33,14 @@ if __name__ == "__main__":
 
     # Instantiate model
     logger.info("Loading model")
-    model = ContrastiveLSTM(in_size=FACED['channels'], hidden_size=10,
-                            out_size=30, l_rate=args.l_rate, batch_size=args.batch_size, dropout=args.dropout)
+    model = ContrastiveLSTM(in_size=FACED['channels'], hid_lstm=5, hid_fc=[10],
+                            out_size=3, l_rate=args.l_rate, batch_size=args.batch_size, dropout=args.dropout, weight_file=args.weights_file)
 
     # Load model weight if necessary
-    if args.weights_file is not None:
-        weights_path = args.weights_file.expanduser().resolve()
-        if weights_path.exists() and weights_path.is_file():
-            logger.info(f'Loading weights from: {weights_path}')
-            model.load_state_dict(torch.load(weights_path, weights_only=True))
+    weights_path = args.weights_file.expanduser().resolve()
+    if weights_path.exists() and weights_path.is_file():
+        logger.info(f'Loading weights from: {weights_path}')
+        model.load_state_dict(torch.load(weights_path, weights_only=True))
 
     # Load data
     logger.info("Loading data")
